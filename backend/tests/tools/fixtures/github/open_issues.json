@@ -1,0 +1,61 @@
+{
+  "data": {
+    "repository": {
+      "issues": {
+        "totalCount": 5749,
+        "nodes": [
+          {
+            "number": 10836,
+            "title": "[RISK-ALERT W33] North Korean operatives infiltrating US companies — insider/IT supply-chain threat",
+            "url": "https://github.com/octocat/Hello-World/issues/10836",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T10:44:21Z",
+            "author": {
+              "login": "atool3800-stack"
+            }
+          },
+          {
+            "number": 10835,
+            "title": "[RISK-ALERT W33] US to impose 50% tariffs on Canada from Aug 19 — cross-border trade exposure",
+            "url": "https://github.com/octocat/Hello-World/issues/10835",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T10:44:20Z",
+            "author": {
+              "login": "atool3800-stack"
+            }
+          },
+          {
+            "number": 10834,
+            "title": "[RISK-ALERT W33] Private credit \"shadow defaults\": PIK lending cutbacks signal credit deterioration",
+            "url": "https://github.com/octocat/Hello-World/issues/10834",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T10:44:20Z",
+            "author": {
+              "login": "atool3800-stack"
+            }
+          },
+          {
+            "number": 10833,
+            "title": "[RISK-ALERT W33] Fed rate path: CPI relief vs. 2007-high yields — ALM & annuity implications",
+            "url": "https://github.com/octocat/Hello-World/issues/10833",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T10:44:20Z",
+            "author": {
+              "login": "atool3800-stack"
+            }
+          },
+          {
+            "number": 10832,
+            "title": "[RISK-ALERT W33] NAIC principles-based bond definition reshapes life/annuity insurer investments",
+            "url": "https://github.com/octocat/Hello-World/issues/10832",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T10:44:20Z",
+            "author": {
+              "login": "atool3800-stack"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

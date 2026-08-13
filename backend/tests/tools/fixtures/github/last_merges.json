@@ -1,0 +1,23 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "totalCount": 1,
+        "nodes": [
+          {
+            "number": 6,
+            "title": "New line at end of file.",
+            "url": "https://github.com/octocat/Hello-World/pull/6",
+            "mergedAt": "2012-03-06T23:06:50Z",
+            "author": {
+              "login": "Spaceghost"
+            },
+            "mergeCommit": {
+              "oid": "ca63dc8d9a40887bda7b670c5ce947b84e600de7"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

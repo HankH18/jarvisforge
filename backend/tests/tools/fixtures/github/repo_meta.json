@@ -1,0 +1,19 @@
+{
+  "data": {
+    "repository": {
+      "name": "Hello-World",
+      "nameWithOwner": "octocat/Hello-World",
+      "description": "My first repository on GitHub!",
+      "isPrivate": false,
+      "stargazerCount": 3766,
+      "forkCount": 6478,
+      "primaryLanguage": null,
+      "defaultBranchRef": {
+        "name": "master",
+        "target": {
+          "oid": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+        }
+      }
+    }
+  }
+}

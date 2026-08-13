@@ -1,0 +1,61 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "totalCount": 1162,
+        "nodes": [
+          {
+            "number": 10829,
+            "title": "Add author name to README",
+            "url": "https://github.com/octocat/Hello-World/pull/10829",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T07:05:42Z",
+            "author": {
+              "login": "OliverJohn-git"
+            }
+          },
+          {
+            "number": 10827,
+            "title": "Update README for GitHub collaboration lab",
+            "url": "https://github.com/octocat/Hello-World/pull/10827",
+            "state": "OPEN",
+            "createdAt": "2026-08-13T05:43:35Z",
+            "author": {
+              "login": "kenishajudith"
+            }
+          },
+          {
+            "number": 10823,
+            "title": "Add AGENTS.md for octocat/Hello-World",
+            "url": "https://github.com/octocat/Hello-World/pull/10823",
+            "state": "OPEN",
+            "createdAt": "2026-08-12T18:20:31Z",
+            "author": {
+              "login": "ahm3d-karim"
+            }
+          },
+          {
+            "number": 10813,
+            "title": "feat: 新增火力大喵功能",
+            "url": "https://github.com/octocat/Hello-World/pull/10813",
+            "state": "OPEN",
+            "createdAt": "2026-08-12T08:59:58Z",
+            "author": {
+              "login": "xingxiayouye"
+            }
+          },
+          {
+            "number": 10792,
+            "title": "fixfromd",
+            "url": "https://github.com/octocat/Hello-World/pull/10792",
+            "state": "OPEN",
+            "createdAt": "2026-08-10T14:22:57Z",
+            "author": {
+              "login": "sivasubasri123-prog"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
