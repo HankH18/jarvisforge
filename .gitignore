@@ -1,0 +1,23 @@
+# --- Python (backend/) ---
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Node (frontend/) ---
+node_modules/
+dist/
+*.local
+
+# --- Env files (never commit real secrets; .env.example is tracked) ---
+.env
+.env.*
+!.env.example
+
+# --- macOS ---
+.DS_Store
+
+# --- Hook-generated verify receipts ---
+.claude/evidence/

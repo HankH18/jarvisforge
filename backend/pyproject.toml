@@ -1,0 +1,65 @@
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "Jarvis — real-time grounded voice assistant"
+requires-python = ">=3.12,<3.13"
+
+# Runtime dependencies for the whole build are declared here at bootstrap.
+# Downstream ticket scopes (T-1..T-11) cover backend/src/** and backend/tests/**
+# but NOT backend/pyproject.toml, so every provider SDK a later ticket imports
+# has to be resolvable from T-0. Declaring the dependency is not "calling the
+# provider SDK" (T-0 non-goal) — no app logic ships in this ticket.
+dependencies = [
+    # T-1 voice pipeline (LiveKit Agents worker + FastAPI token endpoint)
+    "livekit-agents[deepgram,cartesia,silero,anthropic]>=1.0",
+    "livekit-api>=1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-dotenv>=1.0",
+    # T-2 grounded tool-calling core
+    "anthropic>=0.40",
+    "pyyaml>=6.0",
+    # T-3 weather (keyless Open-Meteo over plain HTTP)
+    "httpx>=0.27",
+    # T-4 GitHub Q&A
+    "gitingest>=0.1",
+    "githubkit>=0.12",
+    # T-5 memory (mem0 OSS on Postgres/pgvector)
+    "mem0ai>=0.1.50",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    # T-10 bonus: Clerk auth
+    "clerk-backend-api>=1.0",
+    "pyjwt[crypto]>=2.9",
+    # T-11 bonus: agentic issue -> PR
+    "claude-agent-sdk>=0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jarvis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

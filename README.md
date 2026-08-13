@@ -1,27 +1,44 @@
-# Jarvis — Claude Code Handoff Package
+# Jarvis
 
-Copy everything here into the root of the (private) jarvis repo.
+Jarvis is a real-time, low-latency voice assistant with persistent
+cross-session memory. It answers strictly from grounded, live data — a
+weather API and GitHub repos it can query on demand — refusing rather than
+fabricating when the data doesn't support an answer, while holding
+conversation latency close to human turn-taking speed.
+
+This repo is **private** (see `docs/SPEC.md` §C6).
+
+## Repo layout
 
 ```
-CLAUDE.md                     execution protocol (enforced by hooks)
-.claude/settings.json         hook wiring
-.claude/hooks/*.sh            verify gate, scope guard, stop backstop
-.claude/agents/verifier.md    optional cheap pre-close reviewer
-docs/SPEC.md                  Tier 1 — intent (R1–R12, C1–C7)
-docs/DESIGN.md                Tier 2 — pinned contracts
-docs/TASKS.md                 Tier 3 — human-readable graph + merge order
-docs/tickets.json             Tier 3 — AUTHORITATIVE (hooks read this)
-docs/INGEST.md                first-session Tasks setup
+backend/src/jarvis/{pipeline,server,llm,tools,memory,cadence,auth,agents_pr}/
+backend/tests/{pipeline,grounding,tools,memory,cadence,multiuser,agent_pr}/
+backend/evals/            # golden.jsonl + runner
+frontend/src/             # SPA (auth/, wake/ arrive with bonuses)
+scripts/  infra: fly.toml, backend/Dockerfile  .github/workflows/ci.yml
 ```
 
-## Launch checklist
+## Prerequisites
 
-1. Copy the package into the repo; `chmod +x .claude/hooks/*.sh`; ensure `jq` is installed.
-2. Every session: `CLAUDE_CODE_TASK_LIST_ID=jarvis claude` from the repo root (persists the task graph across sessions/days).
-3. First session: "Follow docs/INGEST.md." Verify the ready set matches the graph roots (only T-0).
-4. Then: "Claim the next ready ticket and execute per CLAUDE.md." Repeat until TaskList is empty.
-5. Do not set ANTHROPIC_API_KEY in this environment (avoids documented silent API-billing paths); run interactively, not via `claude -p`.
+- [uv](https://docs.astral.sh/uv/) (Python package/dependency manager)
+- Node.js 22+
+- Docker (for a local Postgres + pgvector instance)
 
-If Claude Code has shipped a new version since this package was generated
-(Aug 2026), re-verify before first use: Task tool names + addBlockedBy
-semantics, TaskCompleted blocking on exit 2, and headless billing status.
+## Quickstart
+
+```bash
+make install   # uv sync (backend) + npm ci (frontend)
+make lint      # ruff check
+make test      # backend pytest + frontend vitest --run
+make build     # frontend production build
+```
+
+Copy `.env.example` to `.env` and fill in real values before running any
+service locally — never commit `.env`.
+
+## Docs
+
+- [`docs/SPEC.md`](docs/SPEC.md) — intent: requirements and constraints
+- [`docs/DESIGN.md`](docs/DESIGN.md) — pinned architecture and contracts
+- [`docs/TASKS.md`](docs/TASKS.md) — human-readable task graph and merge order
+- [`CLAUDE.md`](CLAUDE.md) — build execution protocol

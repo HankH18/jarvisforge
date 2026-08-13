@@ -1,0 +1,21 @@
+name: CI
+
+# SPEC C7: keep CI light — one job, pull_request only, no matrix, no e2e.
+on:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Lint
+        run: cd backend && uv run ruff check src
+
+      - name: Test
+        run: cd backend && uv run pytest -q
