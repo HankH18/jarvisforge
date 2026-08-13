@@ -26,6 +26,17 @@ _BACKEND_SRC = _BACKEND_ROOT / "src"
 if str(_BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(_BACKEND_SRC))
 
+# The ticket's verify command is a bare `uv run python -m evals.run ...`, so it
+# has to work without the caller having sourced anything -- including when the
+# TaskCompleted hook runs it with an otherwise empty environment. Load the repo
+# .env if one exists; an already-exported value always wins, so CI and one-off
+# overrides (CONVO_MODEL=... uv run ...) still behave as written.
+_DOTENV = _BACKEND_ROOT.parent / ".env"
+if _DOTENV.is_file():
+    from dotenv import load_dotenv
+
+    load_dotenv(_DOTENV, override=False)
+
 from evals.scoring import CaseOutcome, GoldenCase, load_golden, score  # noqa: E402
 
 if TYPE_CHECKING:
