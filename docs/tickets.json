@@ -1,0 +1,239 @@
+{
+  "project": "jarvis",
+  "tickets": [
+    {
+      "id": "T-0",
+      "title": "Repo skeleton, test harness, lint, light CI green on empty suite",
+      "objective": "Bootstrap so every downstream verify command is runnable: Python backend (uv, pytest, ruff), Vite React frontend (vitest), scripts dir, light GHA workflow, .env.example.",
+      "refs": ["C1", "C5", "C7", "DESIGN#architecture"],
+      "acceptance": [
+        "backend/ initialized with uv; pytest and ruff configured; empty suite passes",
+        "frontend/ Vite React TS scaffold builds; vitest configured with one trivial passing test",
+        ".github/workflows/ci.yml: single job, ruff + pytest, pull_request trigger only",
+        ".env.example lists every env var named in DESIGN.md; no secrets committed"
+      ],
+      "verify": "cd backend && uv run pytest -q && uv run ruff check src && cd ../frontend && npm run -s build",
+      "scope": ["backend/**", "frontend/**", "scripts/**", ".github/**", "Makefile", "README.md", ".env.example", ".gitignore"],
+      "depends_on": [],
+      "non_goals": ["No app logic; no provider SDK calls; no Docker/Fly config"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-1",
+      "title": "Voice loop works end-to-end: STT -> LLM -> TTS on LiveKit with state events",
+      "objective": "LiveKit Agents worker joins a room, streams Deepgram STT in, a single fast model replies, Cartesia TTS streams out; FastAPI token endpoint; agent_state and transcript data-channel events per DESIGN.",
+      "refs": ["R1", "C1", "C2", "DESIGN#interfaces"],
+      "acceptance": [
+        "Worker registers with LiveKit and completes a synthetic audio turn in tests with mocked STT/TTS providers",
+        "POST /api/token returns a valid LiveKit token per the pinned request/response shape",
+        "agent_state transitions listening->thinking->speaking emitted on the data channel",
+        "TTS provider selected by env var; Cartesia default, Aura-2 fallback both wired",
+        "Per-turn latency JSONL logging in place (turn_end_ts, first_audio_ts)"
+      ],
+      "verify": "cd backend && uv run pytest tests/pipeline -q && uv run ruff check src",
+      "scope": ["backend/src/jarvis/pipeline/**", "backend/src/jarvis/server/**", "backend/tests/pipeline/**"],
+      "depends_on": ["T-0"],
+      "non_goals": ["No tools, no memory, no grounding policy, no frontend"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-2",
+      "title": "Grounded tool-calling core: routing, ANSWER_POLICY, refusal, self-manifest",
+      "objective": "Dual-model routing (CONVO_MODEL always-on, TOOL_MODEL escalation for heavy tools), ToolResult type, tool registry, synthesize_grounded with REFUSAL behavior, capabilities.yaml + self_manifest tool (R5).",
+      "refs": ["R5", "R6", "C3", "DESIGN#interfaces"],
+      "acceptance": [
+        "ToolResult, REFUSAL, synthesize_grounded implemented exactly as pinned in DESIGN.md",
+        "Routing escalates to TOOL_MODEL only for tools tagged heavy",
+        "Given empty/irrelevant tool results, answer starts with REFUSAL (unit-tested on fixture transcripts)",
+        "Capability questions answered solely from capabilities.yaml (unit-tested)"
+      ],
+      "verify": "cd backend && uv run pytest tests/grounding -q && uv run ruff check src",
+      "scope": ["backend/src/jarvis/llm/**", "backend/src/jarvis/tools/**", "backend/src/jarvis/capabilities.yaml", "backend/tests/grounding/**"],
+      "depends_on": ["T-1"],
+      "non_goals": ["No concrete external tools (weather/github land in T-3/T-4)"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-3",
+      "title": "Weather answers grounded in live Open-Meteo data",
+      "objective": "get_weather tool (geocode + forecast, keyless Open-Meteo) returning ToolResult; answers cite recency when asked (R8).",
+      "refs": ["R8", "DESIGN#interfaces"],
+      "acceptance": [
+        "get_weather returns pinned ToolResult shape for now/today/week using recorded API fixtures",
+        "Unknown location or API error yields ToolResult.error and a REFUSAL-path answer, not a guess",
+        "fetched_at populated; recency question answered from it (unit-tested)"
+      ],
+      "verify": "cd backend && uv run pytest tests/tools/test_weather.py -q",
+      "scope": ["backend/src/jarvis/tools/weather/**", "backend/tests/tools/test_weather.py", "backend/tests/tools/fixtures/weather/**"],
+      "depends_on": ["T-2"],
+      "non_goals": ["No paid weather providers; no caching layer"],
+      "parallel_safe": true
+    },
+    {
+      "id": "T-4",
+      "title": "GitHub Q&A grounded in live repo data with graceful oversize degradation",
+      "objective": "load_repo_digest (gitingest, cached by (repo, head_sha), 15-min TTL, token budget) and github_query (githubkit GraphQL: open_prs, open_issues, pr_comments, last_merges, repo_meta), both heavy-tagged (R7).",
+      "refs": ["R7", "DESIGN#interfaces", "DESIGN#decisions--rationale"],
+      "acceptance": [
+        "Both tools return pinned ToolResult shapes against recorded fixtures for a pinned public repo snapshot",
+        "Digest exceeding token_budget triggers targeted-query degradation, never truncated-content answering (unit-tested)",
+        "Cache hit on unchanged head_sha within TTL (unit-tested)",
+        "Invalid/private/nonexistent URL yields ToolResult.error -> REFUSAL path"
+      ],
+      "verify": "cd backend && uv run pytest tests/tools/test_github.py -q",
+      "scope": ["backend/src/jarvis/tools/github/**", "backend/tests/tools/test_github.py", "backend/tests/tools/fixtures/github/**"],
+      "depends_on": ["T-2"],
+      "non_goals": ["No embedding index; no write actions on repos (PR-opening is T-11)"],
+      "parallel_safe": true
+    },
+    {
+      "id": "T-5",
+      "title": "Cross-session memory round-trips through self-hosted mem0 on pgvector",
+      "objective": "MemoryStore protocol implemented on mem0 OSS + Postgres/pgvector (docker-compose for local dev); session turns persisted; search surfaces prior-session facts as ToolResults; preferences table created (R3).",
+      "refs": ["R3", "C4", "DESIGN#interfaces", "DESIGN#data-models"],
+      "acceptance": [
+        "Round-trip test: fact stored under user U in session A is returned by search(U, ...) in a new session B",
+        "search results are ToolResult source=memory:mem0 feeding synthesize_grounded",
+        "Isolation primitive proven: search(U2) never returns U1 rows (full multi-user lands in T-10)",
+        "preferences table migrated; get/add_preference round-trip"
+      ],
+      "verify": "cd backend && uv run pytest tests/memory -q",
+      "scope": ["backend/src/jarvis/memory/**", "backend/tests/memory/**", "backend/docker-compose.yml"],
+      "depends_on": ["T-2"],
+      "non_goals": ["No Clerk/auth; no preference voice-capture UX (T-10)"],
+      "parallel_safe": true
+    },
+    {
+      "id": "T-6",
+      "title": "Cadence and interruption feel natural: fillers, barge-in, stop phrase",
+      "objective": "Filler bank pre-synthesized; >500ms heavy-tool turns get a spoken acknowledgment within 300ms; any user speech pauses playback; stop phrases cancel the turn (R2, R4). Exploratory tuning: hit the boundaries, don't gold-plate.",
+      "refs": ["R2", "R4", "DESIGN#interfaces"],
+      "acceptance": [
+        "Filler gating unit-tested: stubbed tool latency >500ms triggers filler, <500ms does not",
+        "Filler assets generated by scripts/build_fillers.py into assets/fillers/",
+        "Stop-phrase detection cancels turn; barge-in pauses playback (state-machine unit tests)",
+        "No-immediate-repeat filler selection unit-tested"
+      ],
+      "verify": "cd backend && uv run pytest tests/cadence -q",
+      "scope": ["backend/src/jarvis/cadence/**", "backend/tests/cadence/**", "backend/assets/fillers/**", "scripts/build_fillers.py"],
+      "depends_on": ["T-2"],
+      "non_goals": ["No semantic turn-detection model swaps; LiveKit defaults + tuning only"],
+      "parallel_safe": true
+    },
+    {
+      "id": "T-7",
+      "title": "Grounding eval harness passes with zero fabrications on approved golden set",
+      "objective": "evals/golden.jsonl (>=30 cases: grounded answers, forced refusals, memory recalls) + evals.run executing cases against synthesize_grounded with fixture tools; Hank approves the golden set (R6a external ground truth).",
+      "refs": ["R6", "R6a", "DESIGN#interfaces"],
+      "acceptance": [
+        "golden.jsonl has >=30 cases in the pinned schema covering all three case types",
+        "Hank has reviewed and approved golden.jsonl (approval noted in the file header comment) - REQUIRED before close",
+        "evals.run reports 0 fabrications and 0 wrong-refusals; nonzero exits nonzero"
+      ],
+      "verify": "cd backend && uv run python -m evals.run --golden evals/golden.jsonl --max-fabrications 0",
+      "scope": ["backend/evals/**"],
+      "depends_on": ["T-3", "T-4", "T-5"],
+      "non_goals": ["No live-API eval cases (fixtures only); no CI wiring (local merge gate by design)"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-8",
+      "title": "Polished SPA: join, converse, see live transcript and agent state",
+      "objective": "React/Vite client: token fetch, room join, mic controls, live transcript, listening/thinking/working/speaking indicators. Polished per frontend-design guidance; UI simple, UX sharp.",
+      "refs": ["R1", "C5", "DESIGN#interfaces"],
+      "acceptance": [
+        "Client fetches /api/token with pinned shape and joins the room (mocked in tests)",
+        "agent_state and transcript events render (component tests)",
+        "Production build passes; no Next.js anywhere in the dependency tree"
+      ],
+      "verify": "cd frontend && npm run -s build && npm run -s test -- --run",
+      "scope": ["frontend/**"],
+      "depends_on": ["T-1"],
+      "non_goals": ["No auth UI (T-10), no wake word (T-12)"],
+      "parallel_safe": true
+    },
+    {
+      "id": "T-9",
+      "title": "Deployed on Fly.io: web + worker live, smoke passing, MVP demo-able",
+      "objective": "Single Fly app, two process groups (web=FastAPI+static SPA, worker=agent); Fly Postgres attached; secrets set; smoke script green against the deployed URL; latency report from deployed instance meets R1.",
+      "refs": ["R1", "C5", "C7", "DESIGN#verification-strategy"],
+      "acceptance": [
+        "fly.toml defines web + worker process groups; backend Dockerfile builds",
+        "scripts/smoke_deploy.sh: health endpoint 200, token endpoint returns valid shape, worker registered",
+        "scripts/latency_report.py over >=50 deployed turns shows p95 <= 800ms (R1) - report committed as docs/latency-report.md"
+      ],
+      "verify": "bash scripts/smoke_deploy.sh",
+      "scope": ["fly.toml", "backend/Dockerfile", "scripts/**", ".github/workflows/**", "docs/latency-report.md"],
+      "depends_on": ["T-6", "T-7", "T-8"],
+      "non_goals": ["No autoscaling config; no custom domains; no Vercel"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-10",
+      "title": "Bonus: multi-user with Clerk - isolated memory, honored preferences, 10 concurrent",
+      "objective": "Clerk sign-in in SPA; /api/token requires Clerk JWT and derives identity server-side; mem0 namespacing by Clerk user id; voice-captured standing preferences honored across sessions; 10-session load smoke (R9).",
+      "refs": ["R9", "DESIGN#interfaces"],
+      "acceptance": [
+        "Unauthenticated /api/token returns 401; identity comes from verified JWT (client identity ignored)",
+        "Isolation test: user A's stored fact absent from user B's recall",
+        "Preference stated by voice in session 1 is honored in session 2 (test via prefs injection path)",
+        "scripts/load_smoke.sh sustains 10 concurrent sessions without errors"
+      ],
+      "verify": "cd backend && uv run pytest tests/multiuser -q && bash scripts/load_smoke.sh 10",
+      "scope": ["backend/src/jarvis/auth/**", "backend/src/jarvis/server/**", "backend/src/jarvis/memory/**", "backend/tests/multiuser/**", "frontend/src/auth/**", "frontend/src/App.tsx", "scripts/load_smoke.sh"],
+      "depends_on": ["T-9"],
+      "non_goals": ["No roles/orgs; no billing; no LiveKit self-hosting even if Cloud free-tier concurrency caps bite - flag to human instead"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-11",
+      "title": "Bonus: 'fix issue #N' opens a real PR with audible progress",
+      "objective": "run_fix_job: background Claude Agent SDK run in isolated workdir with scoped GITHUB_TOKEN against a user-controlled test repo; announces start/progress/PR-opened via data channel + TTS; opens PR, never merges (R10).",
+      "refs": ["R10", "R2", "DESIGN#interfaces"],
+      "acceptance": [
+        "Job orchestration unit-tested with a mocked agent (states: started -> progress -> pr_opened|failed)",
+        "Announcements emitted at each state transition",
+        "One recorded live run against the designated test repo produced an open PR (PR URL committed to docs/agent-pr-demo.md)",
+        "No merge or force-push capability in the token scope"
+      ],
+      "verify": "cd backend && uv run pytest tests/agent_pr -q",
+      "scope": ["backend/src/jarvis/agents_pr/**", "backend/tests/agent_pr/**", "docs/agent-pr-demo.md"],
+      "depends_on": ["T-9"],
+      "non_goals": ["No arbitrary-repo writes; no auto-merge; no retry queues"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-12",
+      "title": "Bonus: passive mode wakes on 'Jarvis' with zero upstream audio while passive",
+      "objective": "Porcupine Web SDK with built-in 'Jarvis' keyword; passive/active client state machine; mic audio published to LiveKit only in active state (R11).",
+      "refs": ["R11", "DESIGN#interfaces"],
+      "acceptance": [
+        "State machine unit tests: passive -> wake event -> active -> session end -> passive",
+        "Track-publish gating tested: no LiveKit audio track published while passive",
+        "Passive mode is an explicit user toggle, default off"
+      ],
+      "verify": "cd frontend && npm run -s test -- --run",
+      "scope": ["frontend/src/wake/**", "frontend/src/state/**", "frontend/src/App.tsx"],
+      "depends_on": ["T-9"],
+      "non_goals": ["No custom wake words; no mobile; no background-tab guarantees"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-13",
+      "title": "Submission package sent: video, docs, zip emailed, checklist green",
+      "objective": "Technical documentation (architecture + AI-usage note), 5-10 min demo video incl. GitHub Q&A against the chosen active mid-size OSS repo, private-repo confirmation, zip emailed to wduffy@ and pmoeckel@frontieraudio.com.",
+      "refs": ["SPEC#success-criteria", "SPEC#open-questions"],
+      "acceptance": [
+        "PLACEHOLDER - BLOCKED ON SPEC open question 1: video content checklist finalized from the missing PRD screenshot region before recording",
+        "docs/TECHNICAL.md covers architecture, stack rationale, and known limits",
+        "scripts/verify_submission.sh checks: repo private, video file present, TECHNICAL.md present, zip built",
+        "Zip sent to both addresses; sent-confirmation noted in docs/SUBMISSION.md"
+      ],
+      "verify": "bash scripts/verify_submission.sh",
+      "scope": ["docs/**", "scripts/verify_submission.sh", "submission/**"],
+      "depends_on": ["T-9"],
+      "non_goals": ["Do not block on bonuses - submit with whatever is green"],
+      "parallel_safe": false
+    }
+  ]
+}
