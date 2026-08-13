@@ -1,0 +1,49 @@
+# fly.toml — jarvisforge
+#
+# Deploy from the repo root (this file's directory), which is also the
+# Docker build context required by backend/Dockerfile:
+#     fly deploy
+#
+# ---------------------------------------------------------------------------
+# Secrets a human must set BEFORE the first deploy (no values live here):
+#     fly secrets set \
+#       ANTHROPIC_API_KEY=... \
+#       CONVO_MODEL=... \
+#       TOOL_MODEL=... \
+#       LIVEKIT_URL=... \
+#       LIVEKIT_API_KEY=... \
+#       LIVEKIT_API_SECRET=... \
+#       CARTESIA_API_KEY=... \
+#       DEEPGRAM_API_KEY=... \
+#       TTS_PROVIDER=... \
+#       GITHUB_TOKEN=...
+#
+# DATABASE_URL is NOT set here — it is injected automatically when the app's
+# Postgres cluster is attached:
+#     fly postgres attach <postgres-app-name> -a jarvisforge
+# ---------------------------------------------------------------------------
+
+app = "jarvisforge"
+primary_region = "iad"
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+[processes]
+  web = "uvicorn scripts.serve_web:app --host 0.0.0.0 --port 8080"
+  worker = "python -m jarvis.pipeline.worker start"
+
+# Only the web process group takes public traffic. The worker group is
+# intentionally omitted from `processes` below so it never gets a public
+# service/port — it just runs and connects out to LiveKit.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  processes = ["web"]
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
