@@ -1,184 +1,379 @@
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
+/* ---- App shell ---- */
 
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
-}
-
-#center {
+.app {
   display: flex;
   flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
+  min-height: 100svh;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(16px, 4vw, 32px);
+  gap: 20px;
 }
 
-#next-steps {
+.app__header {
+  text-align: center;
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app__title {
+  font-size: clamp(22px, 4vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.app__tagline {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.app__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Centred, not top-aligned: with an empty transcript the orb and its hint
+     sit as one group in the open space instead of leaving a gap above the
+     controls. Once the transcript fills, it takes the space and scrolls. */
+  justify-content: center;
+  gap: 20px;
+}
+
+.app__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
-  text-align: left;
+}
 
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
+.app__error {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.app__room {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app__room-label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.app__room-input {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.app__room-input::placeholder {
+  color: var(--text-dim);
+}
+
+.app__room-input:disabled {
+  opacity: 0.5;
+}
+
+/* ---- Agent state indicator ----
+   Four states, differentiated by shape + motion, never by colour alone --
+   the visible label text is the primary, always-present differentiator.
+   The orb box is a fixed size so state changes never shift layout. */
+
+.agent-orb-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.agent-orb {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.agent-orb__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--border-strong);
+}
+
+.agent-orb__ring--inner {
+  inset: 16px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.agent-orb__core {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background-color 0.25s ease;
+}
+
+/* listening: solid bright ring, slow breathing pulse */
+.agent-orb[data-state='listening'] .agent-orb__ring--outer {
+  border-color: var(--accent);
+  animation: orb-breathe 2.6s ease-in-out infinite;
+}
+.agent-orb[data-state='listening'] .agent-orb__core {
+  background: var(--accent);
+}
+
+/* thinking: dashed ring, slow constant rotation */
+.agent-orb[data-state='thinking'] .agent-orb__ring--outer {
+  border-style: dashed;
+  border-color: var(--accent);
+  animation: orb-spin 6s linear infinite;
+}
+.agent-orb[data-state='thinking'] .agent-orb__core {
+  background: var(--accent);
+}
+
+/* working: partial-arc ring plus a nested ring, fast rotation -- reads as
+   heavier / more active than thinking even before motion is considered. */
+.agent-orb[data-state='working'] .agent-orb__ring--outer {
+  border-color: transparent;
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: orb-spin 1.1s linear infinite;
+}
+.agent-orb[data-state='working'] .agent-orb__ring--inner {
+  opacity: 1;
+}
+.agent-orb[data-state='working'] .agent-orb__core {
+  background: var(--accent);
+}
+
+/* speaking: two concentric rings, staggered outward ripple */
+.agent-orb[data-state='speaking'] .agent-orb__ring--outer {
+  border-color: var(--accent);
+  animation: orb-ripple 1.8s ease-out infinite;
+}
+.agent-orb[data-state='speaking'] .agent-orb__ring--inner {
+  opacity: 1;
+  border-color: var(--accent);
+  animation: orb-ripple 1.8s ease-out infinite 0.6s;
+}
+.agent-orb[data-state='speaking'] .agent-orb__core {
+  background: var(--accent);
+}
+
+.is-connecting .agent-orb__ring--outer {
+  animation: orb-breathe 1.6s ease-in-out infinite;
+  opacity: 0.55;
+}
+
+.agent-state-label {
+  min-height: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.75;
   }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
   }
 }
 
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-#next-steps ul {
+@keyframes orb-ripple {
+  0% {
+    transform: scale(0.82);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: every state keeps a distinct STATIC shape (solid ring,
+   dashed ring, gapped arc + nested ring, double ring) so the four states
+   stay legible without any looping animation. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-orb__ring,
+  .agent-orb__core {
+    animation: none !important;
+  }
+  .agent-orb[data-state='listening'] .agent-orb__ring--outer,
+  .agent-orb[data-state='thinking'] .agent-orb__ring--outer,
+  .agent-orb[data-state='speaking'] .agent-orb__ring--outer {
+    opacity: 1;
+  }
+  .is-connecting .agent-orb__ring--outer {
+    opacity: 1;
+  }
+}
+
+/* ---- Transcript ---- */
+
+.transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  padding: 10px;
+}
+
+/* Before anything has been said, the panel collapses to its hint rather than
+   stretching into a large empty rectangle that reads as unfinished UI. */
+.transcript:has(.transcript__empty) {
+  flex: 0 0 auto;
+}
+
+.transcript__empty {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
+}
+
+.transcript__list {
   list-style: none;
+  margin: 0;
   padding: 0;
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
 }
 
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
+.transcript__line {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  line-height: 1.4;
+  background: var(--surface);
+  color: var(--text);
+  overflow-wrap: break-word;
 }
 
-.ticks {
-  position: relative;
-  width: 100%;
+.transcript__line::before {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+  color: var(--text-dim);
+}
 
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
+.transcript__line[data-role='user'] {
+  margin-inline-start: auto;
+  background: var(--accent-soft);
+}
+.transcript__line[data-role='user']::before {
+  content: 'You';
+}
 
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
+.transcript__line[data-role='assistant'] {
+  margin-inline-end: auto;
+}
+.transcript__line[data-role='assistant']::before {
+  content: 'Jarvis';
+}
+
+/* Interim (non-final) lines are visibly de-emphasised vs final ones. */
+.transcript__line[data-final='false'] {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ---- Controls ---- */
+
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.controls button {
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.controls button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.controls button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.controls__join {
+  flex: 1 1 auto;
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent-strong);
+}
+
+.controls__leave {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.controls__mic {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 480px) {
+  .controls {
+    flex-direction: column;
   }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
+  .controls button {
+    width: 100%;
   }
 }

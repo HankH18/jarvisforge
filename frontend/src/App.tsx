@@ -1,122 +1,67 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useJarvisSession, type UseJarvisSessionOptions } from './hooks/useJarvisSession'
+import { AgentStateIndicator } from './components/AgentStateIndicator'
+import { TranscriptView } from './components/TranscriptView'
+import { Controls } from './components/Controls'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App(props?: { session?: UseJarvisSessionOptions }) {
+  const session = useJarvisSession(props?.session)
+  const [roomName, setRoomName] = useState('')
+
+  const isConnected = session.status === 'connected'
+  const isConnecting = session.status === 'connecting'
+
+  const handleJoin = () => {
+    const trimmed = roomName.trim()
+    void session.join(trimmed === '' ? null : trimmed)
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+    <div className="app">
+      <header className="app__header">
+        <h1 className="app__title">Jarvis</h1>
+        <p className="app__tagline">A calm voice console for your agent.</p>
+      </header>
+
+      <main className="app__main">
+        <AgentStateIndicator state={session.agentState} status={session.status} />
+        <TranscriptView lines={session.transcript} />
+      </main>
+
+      <footer className="app__footer">
+        {session.error && (
+          <p className="app__error" role="alert">
+            {session.error}
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+        )}
 
-      <div className="ticks"></div>
+        {!isConnected && (
+          <div className="app__room">
+            <label htmlFor="room-name" className="app__room-label">
+              Room name (optional)
+            </label>
+            <input
+              id="room-name"
+              type="text"
+              className="app__room-input"
+              placeholder="Leave blank to start a new room"
+              value={roomName}
+              onChange={(event) => setRoomName(event.target.value)}
+              disabled={isConnecting}
+              autoComplete="off"
+            />
+          </div>
+        )}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        <Controls
+          status={session.status}
+          micEnabled={session.micEnabled}
+          onJoin={handleJoin}
+          onLeave={() => void session.leave()}
+          onToggleMic={() => void session.toggleMic()}
+        />
+      </footer>
+    </div>
   )
 }
-
-export default App

@@ -1,9 +1,98 @@
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
+import { createFakeSession, fakeFetchToken } from "./test/fakes";
 
-test("renders the Get started heading", () => {
-  render(<App />);
-  expect(
-    screen.getByRole("heading", { name: /get started/i }),
-  ).toBeInTheDocument();
+describe("App", () => {
+  it("joins a room, renders live agent state and transcript, then leaves", async () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok-e2e", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App
+        session={{
+          createSession: () => session,
+          fetchToken: tokenFn,
+          identity: "web-e2e",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Join room" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Leave room" })).not.toBeInTheDocument();
+
+    const agentState = screen.getByTestId("agent-state");
+    expect(agentState).toHaveAttribute("data-state", "none");
+    expect(agentState).toHaveTextContent("Not connected");
+    expect(screen.getByTestId("transcript-empty")).toBeInTheDocument();
+
+    const roomInput = screen.getByRole("textbox", { name: "Room name (optional)" });
+    fireEvent.change(roomInput, { target: { value: "control-room" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+
+    // Transient state, asserted immediately (not via waitFor, which could
+    // observe it after it has already resolved further).
+    expect(screen.getByRole("button", { name: "Connecting…" })).toBeDisabled();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+    });
+
+    expect(tokenFn.calls).toEqual([{ identity: "web-e2e", room: "control-room" }]);
+    expect(session.connectCalls).toEqual([{ url: "wss://jarvis.test/rtc", token: "tok-e2e" }]);
+    expect(screen.getByRole("button", { name: "Mute microphone" })).toBeInTheDocument();
+
+    act(() => {
+      session.emit({ type: "agent_state", state: "thinking", ts: 1 });
+    });
+    expect(screen.getByTestId("agent-state")).toHaveAttribute("data-state", "thinking");
+    expect(screen.getByTestId("agent-state")).toHaveTextContent("Thinking");
+
+    act(() => {
+      session.emit({ type: "transcript", role: "user", text: "What is the weather?", final: true });
+    });
+    act(() => {
+      session.emit({ type: "transcript", role: "assistant", text: "It is sunny.", final: false });
+    });
+    act(() => {
+      session.emit({ type: "transcript", role: "assistant", text: "It is sunny today.", final: true });
+    });
+
+    const lines = screen.getAllByTestId("transcript-line");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toHaveAttribute("data-role", "user");
+    expect(lines[0]).toHaveAttribute("data-final", "true");
+    expect(lines[0]).toHaveTextContent("What is the weather?");
+    expect(lines[1]).toHaveAttribute("data-role", "assistant");
+    expect(lines[1]).toHaveAttribute("data-final", "true");
+    expect(lines[1]).toHaveTextContent("It is sunny today.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave room" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Join room" })).toBeInTheDocument();
+    });
+    expect(session.disconnectCalls).toBe(1);
+    // The transcript survives leaving.
+    expect(screen.getAllByTestId("transcript-line")).toHaveLength(2);
+  });
+
+  it("renders the error as role=alert when join fails, and Join room reappears", async () => {
+    const session = createFakeSession();
+    session.connect = async () => {
+      throw new Error("connect boom");
+    };
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    render(<App session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-err" }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Join room" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Leave room" })).not.toBeInTheDocument();
+  });
 });
