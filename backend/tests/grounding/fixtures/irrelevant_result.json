@@ -1,0 +1,12 @@
+{
+  "question": "What's the weather in Paris right now?",
+  "results": [
+    {
+      "source": "github:graphql",
+      "fetched_at": "2026-08-13T12:00:00+00:00",
+      "data": {"open_prs": 3, "repo": "octocat/hello-world"},
+      "error": null
+    }
+  ],
+  "prefs": ["always mention the temperature in Celsius"]
+}

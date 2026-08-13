@@ -1,0 +1,12 @@
+{
+  "question": "How windy is it?",
+  "results": [
+    {
+      "source": "weather:open-meteo",
+      "fetched_at": "2026-08-13T12:00:00+00:00",
+      "data": {"wind_speed_kph": 12, "city": "Paris"},
+      "error": null
+    }
+  ],
+  "prefs": []
+}

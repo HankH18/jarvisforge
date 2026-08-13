@@ -1,0 +1,12 @@
+{
+  "question": "What's the weather like in NYC?",
+  "results": [
+    {
+      "source": "weather:open-meteo",
+      "fetched_at": "2026-08-13T12:00:00+00:00",
+      "data": {"location": "New York City", "temperature_c": 25, "condition": "cloudy"},
+      "error": null
+    }
+  ],
+  "prefs": []
+}

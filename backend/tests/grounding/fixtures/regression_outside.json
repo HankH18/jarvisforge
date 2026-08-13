@@ -1,0 +1,12 @@
+{
+  "question": "What's it like outside right now?",
+  "results": [
+    {
+      "source": "weather:open-meteo",
+      "fetched_at": "2026-08-13T12:00:00+00:00",
+      "data": {"temperature_c": 21, "condition": "sunny"},
+      "error": null
+    }
+  ],
+  "prefs": []
+}

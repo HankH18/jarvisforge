@@ -1,0 +1,12 @@
+{
+  "question": "What's the weather in Paris right now?",
+  "results": [
+    {
+      "source": "weather:open-meteo",
+      "fetched_at": "2026-08-13T12:00:00+00:00",
+      "data": {"location": "Paris", "temperature_c": 21, "condition": "clear"},
+      "error": null
+    }
+  ],
+  "prefs": ["always mention the temperature in Celsius", "never mention imperial units"]
+}

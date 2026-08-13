@@ -1,0 +1,62 @@
+# Jarvis capabilities manifest (SPEC R5; docs/DESIGN.md §Data models).
+#
+# The ONLY source self_manifest() reads from -- R5 says capability questions
+# are answered SOLELY from this file, so an answer about what Jarvis can do
+# is only ever as truthful as what's written here.
+#
+# SCOPE FREEZE: T-2 is the only ticket in docs/tickets.json whose file scope
+# includes this path. T-3 (weather), T-4 (github), T-5 (memory), T-6
+# (cadence), T-7, T-9, and T-13 cannot edit it. So this describes the MVP
+# deliverable as SPEC.md R1-R8 define it -- not just what has landed as of
+# this ticket -- otherwise the manifest would be permanently stuck claiming
+# Jarvis can't do things it demonstrably does once T-3/T-4/T-5/T-6 ship.
+# Every capability line below is grounded in a specific SPEC requirement
+# (cited inline); nothing here is invented beyond what SPEC promises.
+version: "0.2.0"
+
+capabilities:
+  - Hold a real-time spoken conversation, replying within about 800ms of you
+    finishing speaking whenever the reply needs no external lookup (R1).
+  - When a lookup is expected to take a moment, speak a short acknowledgment
+    such as "Let me check that..." within about 300ms and never leave more
+    than 2 seconds of silence after your turn (R2).
+  - Remember facts and preferences you've shared in past sessions, and recall
+    them in later sessions (R3).
+  - Be interrupted mid-reply (barge-in), and stop the current turn entirely
+    and return to listening on a stop phrase such as "Quiet, Jarvis" or
+    "stop" (R4).
+  - Describe its own capabilities and limitations by reading this versioned
+    manifest, never by guessing or improvising about itself (R5).
+  - Answer strictly from live data fetched during the conversation, and say
+    "I don't know" instead of guessing whenever no fetched data actually
+    supports an answer (R6).
+  - Given a public GitHub repository URL, answer questions about it -- open
+    pull requests, open issues, PR comments, and recent merges -- from live
+    GitHub data fetched in that conversation (R7).
+  - Answer questions about current weather or the forecast for a location
+    from a live weather feed fetched in that conversation, and state how
+    recent that data is when asked (R8).
+
+limitations:
+  - Never guesses -- if no data fetched during the conversation supports an
+    answer, it says "I don't know" rather than fabricate one -- for GitHub
+    and weather facts it never falls back on general training knowledge
+    (R6).
+  - Only answers questions about public GitHub repositories, and never takes
+    a write action on any repository -- no commits, no merges, no edits
+    (R7; non-goals).
+  - Very large repositories are answered with targeted lookups (metadata,
+    file tree, specific files) instead of a full code digest -- never with a
+    guess (R7).
+  - No mobile app, no telephone/SIP calling, and no languages other than
+    English (non-goals).
+  - No offline or locally-run models, no voice cloning, no custom-trained
+    models (non-goals).
+  - No multi-user sign-in or per-user personalization -- everyone currently
+    shares one pool of memory and preferences (arrives with the multi-user
+    bonus, R9, if and when it ships).
+  - Cannot open, modify, or act on a pull request on your behalf (arrives
+    with the agentic issue-to-PR bonus, R10, if and when it ships).
+  - Does not listen passively for a wake word -- a session must be started
+    explicitly (arrives with the passive wake-word bonus, R11, if and when
+    it ships).
