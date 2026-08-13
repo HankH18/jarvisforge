@@ -1,0 +1,29 @@
+# Local dev/test Postgres for T-5 memory (mem0 OSS + pgvector) and the
+# `preferences` table (docs/DESIGN.md §Data models).
+#
+# Port 5432 on this machine is already bound by an unrelated database --
+# do NOT change the host-side port back to 5432 (see docs/DESIGN.md /
+# T-5 ticket notes). We bind to 55432 instead; only the host port differs,
+# the container still listens on 5432 internally.
+#
+# Credentials below are obviously-local dev-only values, not secrets.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: jarvis-memory-postgres
+    environment:
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis_dev_local_only
+      POSTGRES_DB: jarvis
+    ports:
+      - "55432:5432"
+    volumes:
+      - jarvis_memory_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis -d jarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  jarvis_memory_pgdata:

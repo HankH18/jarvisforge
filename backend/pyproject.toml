@@ -28,6 +28,17 @@ dependencies = [
     "mem0ai>=0.1.50",
     "psycopg[binary]>=3.2",
     "pgvector>=0.3",
+    # Added during T-5 under an explicit human-authorized scope exception.
+    # psycopg-pool: mem0's PGVector store imports psycopg_pool unconditionally;
+    #   psycopg[binary] alone does not provide it. Without this the only
+    #   in-scope option was a hand-written sys.modules shim that opened a
+    #   connection per call instead of pooling — in production, not just tests.
+    # fastembed: a REAL local embedder. The stdlib hashed bag-of-words stand-in
+    #   retrieved by lexical hash collision, not meaning, so SPEC R3's own
+    #   example ("yesterday I asked about X — remind me", paraphrased) failed.
+    #   fastembed runs locally with no API key, so C4's self-hosted rule holds.
+    "psycopg-pool>=3.2",
+    "fastembed>=0.4",
     # T-10 bonus: Clerk auth
     "clerk-backend-api>=1.0",
     "pyjwt[crypto]>=2.9",
