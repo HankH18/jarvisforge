@@ -1,0 +1,22 @@
+{
+  "generationtime_ms": 0.5979538,
+  "results": [
+    {
+      "admin1": "England",
+      "admin1_id": 6269131,
+      "admin2": "Greater London",
+      "admin2_id": 2648110,
+      "country": "United Kingdom",
+      "country_code": "GB",
+      "country_id": 2635167,
+      "elevation": 25.0,
+      "feature_code": "PPLC",
+      "id": 2643743,
+      "latitude": 51.50853,
+      "longitude": -0.12574,
+      "name": "London",
+      "population": 8961989,
+      "timezone": "Europe/London"
+    }
+  ]
+}

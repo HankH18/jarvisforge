@@ -1,0 +1,29 @@
+{
+  "current": {
+    "apparent_temperature": 31.4,
+    "interval": 900,
+    "precipitation": 0.0,
+    "relative_humidity_2m": 32,
+    "temperature_2m": 30.5,
+    "time": "2026-08-13T12:30",
+    "weather_code": 0,
+    "wind_speed_10m": 7.2
+  },
+  "current_units": {
+    "apparent_temperature": "\u00b0C",
+    "interval": "seconds",
+    "precipitation": "mm",
+    "relative_humidity_2m": "%",
+    "temperature_2m": "\u00b0C",
+    "time": "iso8601",
+    "weather_code": "wmo code",
+    "wind_speed_10m": "km/h"
+  },
+  "elevation": 23.0,
+  "generationtime_ms": 0.30362606048583984,
+  "latitude": 51.51147,
+  "longitude": -0.13078308,
+  "timezone": "Europe/London",
+  "timezone_abbreviation": "GMT+1",
+  "utc_offset_seconds": 3600
+}

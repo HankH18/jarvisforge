@@ -1,0 +1,37 @@
+{
+  "daily": {
+    "precipitation_probability_max": [
+      0
+    ],
+    "precipitation_sum": [
+      0.0
+    ],
+    "temperature_2m_max": [
+      35.2
+    ],
+    "temperature_2m_min": [
+      19.8
+    ],
+    "time": [
+      "2026-08-13"
+    ],
+    "weather_code": [
+      3
+    ]
+  },
+  "daily_units": {
+    "precipitation_probability_max": "%",
+    "precipitation_sum": "mm",
+    "temperature_2m_max": "\u00b0C",
+    "temperature_2m_min": "\u00b0C",
+    "time": "iso8601",
+    "weather_code": "wmo code"
+  },
+  "elevation": 23.0,
+  "generationtime_ms": 0.23174285888671875,
+  "latitude": 51.51147,
+  "longitude": -0.13078308,
+  "timezone": "Europe/London",
+  "timezone_abbreviation": "GMT+1",
+  "utc_offset_seconds": 3600
+}

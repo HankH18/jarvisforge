@@ -1,0 +1,73 @@
+{
+  "daily": {
+    "precipitation_probability_max": [
+      0,
+      2,
+      25,
+      22,
+      12,
+      27,
+      10
+    ],
+    "precipitation_sum": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      4.8,
+      0.0
+    ],
+    "temperature_2m_max": [
+      35.2,
+      32.7,
+      25.7,
+      24.4,
+      27.0,
+      26.6,
+      25.0
+    ],
+    "temperature_2m_min": [
+      19.8,
+      22.5,
+      21.6,
+      17.1,
+      19.0,
+      18.9,
+      17.4
+    ],
+    "time": [
+      "2026-08-13",
+      "2026-08-14",
+      "2026-08-15",
+      "2026-08-16",
+      "2026-08-17",
+      "2026-08-18",
+      "2026-08-19"
+    ],
+    "weather_code": [
+      3,
+      0,
+      3,
+      3,
+      3,
+      55,
+      3
+    ]
+  },
+  "daily_units": {
+    "precipitation_probability_max": "%",
+    "precipitation_sum": "mm",
+    "temperature_2m_max": "\u00b0C",
+    "temperature_2m_min": "\u00b0C",
+    "time": "iso8601",
+    "weather_code": "wmo code"
+  },
+  "elevation": 23.0,
+  "generationtime_ms": 0.45430660247802734,
+  "latitude": 51.51147,
+  "longitude": -0.13078308,
+  "timezone": "Europe/London",
+  "timezone_abbreviation": "GMT+1",
+  "utc_offset_seconds": 3600
+}
