@@ -1,0 +1,110 @@
+"""Acceptance #2: filler assets exist in backend/assets/fillers/, generated
+by scripts/build_fillers.py. Exercises the REAL committed manifest + wav
+files, not fixtures -- Agent C's asset generation runs concurrently with this
+suite. If the assets are not yet on disk, these tests are *expected* to fail
+until they land (do not skip-if-missing, do not weaken assertions).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+import wave
+
+from jarvis.cadence.fillers import ASSETS_DIR, FILLER_PHRASES, MANIFEST_PATH, FillerBank
+from jarvis.cadence.policy import FILLER_START_DEADLINE_MS
+
+# Pinned in the T-6 contract's "Filler bank" section -- the six committed
+# slugs. fillers.py exposes the six spoken texts as FILLER_PHRASES but not a
+# matching slug constant, so the slug set is pinned locally here.
+_PINNED_SLUGS = {
+    "one-sec",
+    "let-me-check",
+    "give-me-a-mo",
+    "looking-it-up",
+    "on-it",
+    "checking-now",
+}
+
+
+def _load_raw_manifest() -> dict:
+    return json.loads(MANIFEST_PATH.read_text())
+
+
+def test_manifest_path_matches_assets_dir():
+    assert MANIFEST_PATH == ASSETS_DIR / "manifest.json"
+
+
+def test_manifest_parses_at_schema_version_1():
+    raw = _load_raw_manifest()
+    assert raw["schema_version"] == 1
+
+
+def test_manifest_engine_is_a_pinned_value():
+    raw = _load_raw_manifest()
+    assert raw["engine"] in {"cartesia", "macos-say"}
+
+
+def test_every_listed_wav_exists_and_is_non_empty():
+    raw = _load_raw_manifest()
+    assert raw["clips"], "manifest lists no clips"
+    for entry in raw["clips"]:
+        wav_path = ASSETS_DIR / entry["file"]
+        assert wav_path.is_file(), f"missing {wav_path}"
+        assert wav_path.stat().st_size > 0, f"empty {wav_path}"
+
+
+def test_wav_is_readable_pcm_matching_manifest_sample_rate_and_channels():
+    raw = _load_raw_manifest()
+    for entry in raw["clips"]:
+        wav_path = ASSETS_DIR / entry["file"]
+        with wave.open(str(wav_path), "rb") as f:
+            assert f.getframerate() == raw["sample_rate"]
+            assert f.getnchannels() == raw["channels"]
+            assert f.getsampwidth() == 2  # 16-bit PCM, per the pinned schema
+
+
+def test_wav_sha256_matches_the_manifest():
+    raw = _load_raw_manifest()
+    for entry in raw["clips"]:
+        wav_path = ASSETS_DIR / entry["file"]
+        digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
+        assert digest == entry["sha256"], entry["slug"]
+
+
+def test_manifest_slugs_match_the_pinned_filler_bank():
+    raw = _load_raw_manifest()
+    slugs = {c["slug"] for c in raw["clips"]}
+    assert slugs == _PINNED_SLUGS
+
+
+def test_manifest_texts_match_filler_phrases_constant():
+    raw = _load_raw_manifest()
+    texts = {c["text"] for c in raw["clips"]}
+    assert texts == set(FILLER_PHRASES)
+
+
+def test_filler_bank_loads_from_the_real_manifest():
+    bank = FillerBank.from_manifest()
+    assert len(bank) == len(_PINNED_SLUGS)
+    clip = bank.next()
+    assert clip.slug in _PINNED_SLUGS
+
+
+def test_first_clip_dispatch_starts_within_the_pinned_deadline():
+    """Guards FILLER_START_DEADLINE_MS (300ms): the whole point of
+    pre-synthesizing fillers to disk is that loading the bank and handing
+    back the first clip's audio is near-instant, well inside the 300ms
+    budget the turn loop allows for a filler to start speaking. This is
+    deliberately the one test in the suite allowed to measure real elapsed
+    time (time.perf_counter) -- real elapsed time is exactly what
+    acceptance #2 promises.
+    """
+    start = time.perf_counter()
+    bank = FillerBank.from_manifest()
+    clip = bank.next()
+    _ = clip.path.read_bytes()  # simulate dispatch: read the audio bytes
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert elapsed_ms < FILLER_START_DEADLINE_MS

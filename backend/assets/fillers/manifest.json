@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "engine": "macos-say",
+  "voice": "Samantha",
+  "sample_rate": 24000,
+  "channels": 1,
+  "generated_at": "2026-08-13T14:21:08Z",
+  "clips": [
+    {
+      "slug": "one-sec",
+      "text": "One sec.",
+      "file": "one-sec.wav",
+      "duration_ms": 722,
+      "sha256": "e0abac3894b8ea44383696c42f4a70fc61011ab90dcf8b04c9c7b0bd743f9f73"
+    },
+    {
+      "slug": "let-me-check",
+      "text": "Let me check.",
+      "file": "let-me-check.wav",
+      "duration_ms": 817,
+      "sha256": "ce30d9dd773856df4291c97f910c0605afa974721af77b3b66eec3e3f1a58fce"
+    },
+    {
+      "slug": "give-me-a-mo",
+      "text": "Give me a moment.",
+      "file": "give-me-a-mo.wav",
+      "duration_ms": 863,
+      "sha256": "084d8c647f453cd872756ab45a3d9d92235e9dd07001f979ddb70f3d7e4ceae8"
+    },
+    {
+      "slug": "looking-it-up",
+      "text": "Looking that up.",
+      "file": "looking-it-up.wav",
+      "duration_ms": 782,
+      "sha256": "018df588c07336df1bc5f557c0a9c9aeca55661c9738b79a3a0c42f3ba4fce80"
+    },
+    {
+      "slug": "on-it",
+      "text": "On it.",
+      "file": "on-it.wav",
+      "duration_ms": 389,
+      "sha256": "6bc4a8a781334b7f1d955b9d5353024605a79de888460962904543f060d561ae"
+    },
+    {
+      "slug": "checking-now",
+      "text": "Checking on that now.",
+      "file": "checking-now.wav",
+      "duration_ms": 1124,
+      "sha256": "e9493c7de319a7340de95f462dbf39c06bde716d3634954e75d3ed6cee4738eb"
+    }
+  ]
+}
