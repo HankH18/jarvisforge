@@ -22,6 +22,13 @@ dist/
 # --- Hook-generated verify receipts ---
 .claude/evidence/
 
+# --- Submission build artifact (T-13) ---
+# submission/build_zip.sh regenerates this from scratch, and
+# scripts/verify_submission.sh rebuilds it fresh on every run, so the zip is a
+# derived artifact -- committing it would churn 1.6MB of binary in every diff
+# for no gain. The script that builds it IS tracked.
+submission/*.zip
+
 # --- Per-session ticket claims (T-21) ---
 # .claude/claims/<session_id> is machine-local, disposable ownership state:
 # it names a Claude Code session that does not exist in any other checkout.

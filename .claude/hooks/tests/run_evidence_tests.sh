@@ -417,20 +417,56 @@ else
 fi
 
 # ===========================================================================
-# Part 3: real repo, read-only.
+# Part 3: real repo, read-only. This is a PROPERTY check, not a snapshot.
+#
+# An earlier version of this section hard-coded "T-2 and T-6 are legacy"
+# and "all 11 receipts predate fingerprinting" -- both true the hour they
+# were written, both false the moment the documented remedy for
+# UNVERIFIABLE ("re-run that ticket's verify to mint a fingerprinted
+# receipt") was actually followed for every ticket, which is the intended
+# end state, not a regression. A test that fails when the repo legitimately
+# improves is binding transient environment state, not a behavioural
+# property, so it does not hard-code which tickets are legacy. Instead it
+# discovers, from whatever is in .claude/evidence/ right now, which
+# receipts (if any) lack a usable fingerprint, and asserts the same
+# behaviour the GAP3 synthetic fixtures prove in the sandbox above: a
+# receipt with no fp= must read UNVERIFIABLE, never an inferred CURRENT.
+# On this repo today that set is empty (every receipt is fingerprinted),
+# so this is vacuously true -- still meaningful, because it will bite again
+# the moment any receipt regresses to the legacy shape.
+#
+# This is NOT redundant with the GAP3 sandbox tests above: GAP3 proves the
+# SCRIPT's logic is correct against a constructed fixture; this proves the
+# ACTUAL DATA in this repo's .claude/evidence/ obeys that logic right now
+# (e.g. it would also catch a hand-edited or corrupted real receipt that
+# the sandbox fixtures never exercise).
 # ===========================================================================
 REAL_OUT="$("$STALENESS" "$REPO_ROOT" 2>&1 || true)"
 
-if echo "$REAL_OUT" | grep -qE '^UNVERIFIABLE +T-2:' && echo "$REAL_OUT" | grep -qE '^UNVERIFIABLE +T-6:'; then
-  pass "real repo: T-2 and T-6 (legacy receipts, no recorded fingerprint) report UNVERIFIABLE, not an inferred verdict"
-else
-  fail "real repo: T-2 and T-6 (legacy receipts, no recorded fingerprint) report UNVERIFIABLE, not an inferred verdict" "$REAL_OUT"
-fi
+UNFINGERPRINTED_REAL=""
+for real_receipt in "${REPO_ROOT}/.claude/evidence"/T-*.pass; do
+  [ -f "$real_receipt" ] || continue
+  rtid="$(basename "$real_receipt" .pass)"
+  rfp="$(grep -E '^fp=' "$real_receipt" 2>/dev/null | head -n1 | cut -d= -f2-)"
+  if [ -z "$rfp" ] || [ "$rfp" = "FP-COMPUTE-FAILED" ]; then
+    UNFINGERPRINTED_REAL="${UNFINGERPRINTED_REAL} ${rtid}"
+  fi
+done
 
-if echo "$REAL_OUT" | grep -qE '^CURRENT'; then
-  fail "real repo: no legacy receipt (all 11 predate fingerprinting) falsely reports CURRENT" "$REAL_OUT"
+REAL_PROPERTY_OK=1
+REAL_PROPERTY_BAD=""
+for rtid in $UNFINGERPRINTED_REAL; do
+  echo "$REAL_OUT" | grep -qE "^UNVERIFIABLE +${rtid}:" || { REAL_PROPERTY_OK=0; REAL_PROPERTY_BAD="${REAL_PROPERTY_BAD} ${rtid}"; }
+done
+
+if [ "$REAL_PROPERTY_OK" -eq 1 ]; then
+  if [ -n "$UNFINGERPRINTED_REAL" ]; then
+    pass "real repo: every receipt currently lacking fp= reads UNVERIFIABLE (checked:${UNFINGERPRINTED_REAL})"
+  else
+    pass "real repo: every receipt currently lacking fp= reads UNVERIFIABLE (0 such receipts right now -- vacuously true)"
+  fi
 else
-  pass "real repo: no legacy receipt (all 11 predate fingerprinting) falsely reports CURRENT"
+  fail "real repo: every receipt currently lacking fp= reads UNVERIFIABLE" "did not read UNVERIFIABLE for:${REAL_PROPERTY_BAD} -- full output: $REAL_OUT"
 fi
 
 echo
