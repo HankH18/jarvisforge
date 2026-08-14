@@ -47,3 +47,24 @@ primary_region = "iad"
     interval = "15s"
     timeout = "5s"
     grace_period = "10s"
+
+# Memory sizing, not autoscaling (which the ticket lists as a non-goal). Fly's
+# 256MB default OOM-killed the worker on startup -- it loads livekit-agents plus
+# the anthropic/cartesia/deepgram plugins and mem0's embedding stack, and died at
+# ~151MB RSS while still initializing. The machine then reads "started" because
+# it is restarting in a loop, which is exactly the shape of failure that a
+# machine-state check cannot see.
+# The worker is CPU-bound, not just memory-hungry: it runs VAD, audio
+# resampling, and streaming STT/TTS concurrently. On one shared vCPU
+# livekit-agents measured load 0.99 against its 0.7 threshold and marked itself
+# "at full capacity, unavailable" -- it accepted the job and then never got
+# enough CPU to answer, so turns timed out while the machine looked healthy.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+  processes = ["worker"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["web"]
