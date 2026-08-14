@@ -40,10 +40,11 @@ class FakeAgentSession:
 
     instances: list[FakeAgentSession] = []
 
-    def __init__(self, *, stt, llm, tts):
+    def __init__(self, *, stt, llm, tts, turn_handling=None):
         self.stt = stt
         self.llm = llm
         self.tts = tts
+        self.turn_handling = turn_handling
         self.start_kwargs: dict | None = None
         self.on_calls: list[str] = []
         FakeAgentSession.instances.append(self)
@@ -134,6 +135,19 @@ async def test_entrypoint_wires_the_pinned_event_contract_onto_the_session(ctx):
         "conversation_item_added",
         "user_state_changed",
     }
+
+
+@pytest.mark.asyncio
+async def test_entrypoint_enables_preemptive_tts(ctx):
+    """T-16 (R1 latency lever): the real AgentSession is built with
+    preemptive TTS on, not just the SDK's default (LLM-only) preemptive
+    generation -- see worker.py's module docstring for why this is expected
+    to shrink turn_end -> first-audio on no-tool turns."""
+    await worker.entrypoint(ctx)
+
+    session = FakeAgentSession.instances[0]
+    assert session.turn_handling is not None
+    assert session.turn_handling["preemptive_generation"]["preemptive_tts"] is True
 
 
 @pytest.mark.asyncio

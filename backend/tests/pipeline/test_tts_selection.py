@@ -29,6 +29,27 @@ def test_cartesia_selected_explicitly(monkeypatch):
     assert isinstance(build_tts(), cartesia.TTS)
 
 
+def test_cartesia_does_not_request_unused_word_timestamps(monkeypatch):
+    """T-16 latency lever: this repo never consumes Cartesia's word-level
+    alignment data (AgentSession's own use_tts_aligned_transcript stays at
+    its disabled default; the published assistant transcript comes from the
+    chat_ctx item's text, see session_wiring._on_conversation_item_added),
+    so build_tts() must not ask Cartesia to compute and stream it on every
+    chunk -- including the first one, which is on R1's critical path.
+    ``capabilities.aligned_transcript`` is the plugin's own public reflection
+    of the ``word_timestamps`` constructor argument (see the installed
+    livekit-plugins-cartesia TTS.__init__: ``aligned_transcript=
+    word_timestamps``), so this is observable without reaching into a
+    private attribute.
+    """
+    monkeypatch.delenv("TTS_PROVIDER", raising=False)
+    monkeypatch.setenv("CARTESIA_API_KEY", "ck-test")
+
+    result = build_tts()
+
+    assert result.capabilities.aligned_transcript is False
+
+
 def test_aura2_fallback_selected_by_env_var(monkeypatch):
     monkeypatch.setenv("TTS_PROVIDER", "aura2")
     monkeypatch.setenv("DEEPGRAM_API_KEY", "dg-test")

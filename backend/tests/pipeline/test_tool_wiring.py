@@ -20,6 +20,7 @@ in a ``ToolResult``.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 import httpx
@@ -34,6 +35,7 @@ from mocks import MockLLM, MockSTT, MockTTS
 
 from jarvis.llm.types import REFUSAL
 from jarvis.pipeline.agent import JarvisAgent
+from jarvis.pipeline.cadence_wiring import build_filler_gate
 from jarvis.pipeline.latency import LatencyLogger
 from jarvis.pipeline.session_wiring import wire_session_events
 from jarvis.pipeline.tools_wiring import LazyMemoryStore, build_registry
@@ -130,16 +132,22 @@ def _model_routing_env(monkeypatch):
     monkeypatch.setenv("TOOL_MODEL", "claude-tool-test")
 
 
-def _build_agent(*, model_client) -> JarvisAgent:
+def _build_agent(*, model_client, latency: LatencyLogger | None = None) -> JarvisAgent:
     """The real production registry (weather/github/self_manifest/memory,
     see tools_wiring.build_registry) wired into a real JarvisAgent. The
     memory store is a LazyMemoryStore with no DATABASE_URL, so it degrades
     to unavailable without touching a network -- irrelevant to these tests,
     which never call the memory tool.
+
+    ``latency`` (T-16) is threaded straight through to JarvisAgent/
+    livekit_tools/_make_dispatcher, exactly like worker.py's real entrypoint
+    does -- the caller decides whether it cares about the JSONL record.
     """
     memory = LazyMemoryStore(database_url=None)
     registry = build_registry(memory=memory, user_id_getter=lambda: "test-user")
-    return JarvisAgent(registry=registry, prefs_getter=lambda: [], model_client=model_client)
+    return JarvisAgent(
+        registry=registry, prefs_getter=lambda: [], model_client=model_client, latency=latency
+    )
 
 
 @pytest_asyncio.fixture
@@ -152,7 +160,13 @@ async def driven_turn(tmp_path):
     """
     sessions: list[AgentSession] = []
 
-    async def _drive(*, transcript: str, tool_call: tuple[str, dict], agent: JarvisAgent):
+    async def _drive(
+        *,
+        transcript: str,
+        tool_call: tuple[str, dict],
+        agent: JarvisAgent,
+        latency: LatencyLogger | None = None,
+    ):
         session = AgentSession(
             stt=MockSTT(transcript=transcript),
             tts=MockTTS(sample_rate=SAMPLE_RATE),
@@ -163,7 +177,10 @@ async def driven_turn(tmp_path):
         sessions.append(session)
 
         publisher = RecordingPublisher()
-        latency = LatencyLogger(path=tmp_path / f"latency-{len(sessions)}.jsonl", model="mock-llm")
+        if latency is None:
+            latency = LatencyLogger(
+                path=tmp_path / f"latency-{len(sessions)}.jsonl", model="mock-llm"
+            )
         wire_session_events(session, publisher, latency)
 
         audio_in = QueueAudioInput()
@@ -342,3 +359,261 @@ async def test_refusal_holds_when_the_tool_has_no_supporting_data(driven_turn):
 
     assert audio_out.frames, "REFUSAL should still be spoken, not silently dropped"
     assert assistant_texts == [REFUSAL], assistant_texts
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_heavy_tool_turn_records_real_tool_ms_and_escalated_model_in_latency_log(
+    driven_turn, tmp_path
+):
+    """T-16 acceptance #1, end-to-end through the REAL dispatcher: a `heavy`
+    tool firing must leave a latency JSONL record with a real measured
+    tool_ms (> 0, not the old hardcoded 0.0) and the actually-routed
+    escalated model (TOOL_MODEL, not the session's CONVO_MODEL default).
+
+    Fails against pre-T-16 code two ways: _build_agent()/JarvisAgent() don't
+    accept `latency=` at all (TypeError), and even patched to ignore it, the
+    written record would show tool_ms == 0.0 and model == "claude-convo-test"
+    -- session_wiring._on_agent_state_changed's first_audio() call never
+    passed tool_ms, and LatencyLogger.model never changes after construction.
+    """
+    respx.post(GRAPHQL_ENDPOINT).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "repository": {
+                        "name": "Hello-World",
+                        "nameWithOwner": "octocat/Hello-World",
+                        "description": "My first repository on GitHub!",
+                        "isPrivate": False,
+                        "stargazerCount": 42,
+                        "forkCount": 7,
+                        "primaryLanguage": {"name": "Python"},
+                        "defaultBranchRef": {"name": "main", "target": {"oid": "abc123"}},
+                    }
+                }
+            },
+        )
+    )
+
+    client = RecordingModelClient(reply="octocat/Hello-World has 42 stars.")
+    latency = LatencyLogger(path=tmp_path / "heavy-latency.jsonl", model="claude-convo-test")
+    agent = _build_agent(model_client=client, latency=latency)
+
+    audio_out, _ = await driven_turn(
+        transcript="how many stars does octocat/Hello-World have",
+        tool_call=(
+            "github_query",
+            {"url": "https://github.com/octocat/Hello-World", "kind": "repo_meta", "args": {}},
+        ),
+        agent=agent,
+        latency=latency,
+    )
+    assert audio_out.frames
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "heavy-latency.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(records) == 1, records
+    record = records[0]
+    assert record["tool_ms"] > 0, "tool_ms was not populated with real tool time"
+    assert record["model"] == "claude-tool-test", "model did not reflect the escalated TOOL_MODEL"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_non_heavy_tool_turn_records_real_tool_ms_and_stays_on_convo_model(
+    driven_turn, tmp_path
+):
+    """Same as above for a non-heavy tool (weather): tool_ms must still be
+    real (a tool DID run), but model must stay on CONVO_MODEL since this
+    tool never escalates -- proving the fix doesn't over-escalate."""
+    respx.get(GEOCODING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "name": "London",
+                        "country": "United Kingdom",
+                        "latitude": 51.5,
+                        "longitude": -0.12,
+                    }
+                ]
+            },
+        )
+    )
+    respx.get(FORECAST_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "timezone": "Europe/London",
+                "current": {"temperature_2m": 15.2, "weather_code": 3},
+                "current_units": {"temperature_2m": "°C"},
+            },
+        )
+    )
+
+    client = RecordingModelClient(reply="It's 15.2 degrees and cloudy in London right now.")
+    latency = LatencyLogger(path=tmp_path / "weather-latency.jsonl", model="claude-convo-test")
+    agent = _build_agent(model_client=client, latency=latency)
+
+    audio_out, _ = await driven_turn(
+        transcript="what's the weather in london right now",
+        tool_call=("get_weather", {"location": "London", "when": "now"}),
+        agent=agent,
+        latency=latency,
+    )
+    assert audio_out.frames
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "weather-latency.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(records) == 1, records
+    record = records[0]
+    assert record["tool_ms"] > 0, "tool_ms was not populated with real tool time"
+    assert record["model"] == "claude-convo-test", "non-heavy tool must not escalate the model"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_heavy_tool_with_a_real_filler_still_records_the_real_tool_ms_and_model(tmp_path):
+    """T-16 follow-up: an independent verifier reproduced this LIVE against
+    production's actual configuration and found acceptance #1 broken for the
+    realistic case -- a `heavy` tool slow enough to trigger the REAL
+    ``jarvis.pipeline.cadence_wiring.build_filler_gate`` (exactly how
+    worker.py wires it in production, with the real pinned
+    ``FILLER_THRESHOLD_MS=500ms``, not a test-shortened one) must still
+    leave a latency record with the real measured ``tool_ms`` and the
+    escalated model -- not the filler acknowledgment's own (tool_ms=0.0,
+    CONVO_MODEL) numbers.
+
+    Root cause: the filler speaks via the same ``AgentSession.say()``
+    mechanism the real answer uses, firing its own "speaking" transition
+    BEFORE the tool (by definition still running -- that's WHY the filler
+    fired) finishes and ``note_tool_span()`` runs. That premature "speaking"
+    transition used to close the turn's record via ``first_audio()`` with
+    the pre-tool defaults, and the real answer's later "speaking" transition
+    then no-op'd against an already-closed record.
+
+    Neither of the two tests directly above this one caught it:
+    ``_build_agent()`` never wires a ``filler_gate`` at all (``gate=None`` in
+    both), which is not how worker.py actually configures the agent -- this
+    test is the first to exercise that real path. FAILS against the code as
+    of T-16's first pass (before ``LatencyLogger.note_tool_dispatch_started()``
+    existed): the filler's premature "speaking" transition closed the record
+    with ``tool_ms=0.0``/``model="claude-convo-test"`` well before the
+    ~900ms handler delay (chosen to comfortably exceed the real 500ms
+    threshold, exactly reproducing the verifier's report) ever resolved.
+    """
+
+    def _delayed_github_response(request: httpx.Request) -> httpx.Response:
+        time.sleep(0.9)  # exceeds the real FILLER_THRESHOLD_MS=500ms -- arms the real filler
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "repository": {
+                        "name": "Hello-World",
+                        "nameWithOwner": "octocat/Hello-World",
+                        "description": "My first repository on GitHub!",
+                        "isPrivate": False,
+                        "stargazerCount": 42,
+                        "forkCount": 7,
+                        "primaryLanguage": {"name": "Python"},
+                        "defaultBranchRef": {"name": "main", "target": {"oid": "abc123"}},
+                    }
+                }
+            },
+        )
+
+    respx.post(GRAPHQL_ENDPOINT).mock(side_effect=_delayed_github_response)
+
+    session = AgentSession(
+        stt=MockSTT(transcript="how many stars does octocat/Hello-World have"),
+        tts=MockTTS(sample_rate=SAMPLE_RATE),
+        llm=MockLLM(
+            tool_call=(
+                "github_query",
+                {"url": "https://github.com/octocat/Hello-World", "kind": "repo_meta", "args": {}},
+            )
+        ),
+        vad=None,
+        turn_handling=TurnHandlingOptions(turn_detection="manual"),
+    )
+
+    try:
+        publisher = RecordingPublisher()
+        latency = LatencyLogger(
+            path=tmp_path / "real-filler-latency.jsonl", model="claude-convo-test"
+        )
+        wire_session_events(session, publisher, latency)
+
+        # The REAL production filler wiring -- not a hand-built FillerGate
+        # with a test-shortened threshold (that's what test_cadence_wiring.py
+        # exercises for the filler behavior itself; this test's job is the
+        # latency record, using the exact wiring worker.py uses).
+        gate = build_filler_gate(session, publisher=publisher)
+        assert gate is not None, "the real committed filler assets must be present for this test"
+
+        client = RecordingModelClient(reply="octocat/Hello-World has 42 stars.")
+        memory = LazyMemoryStore(database_url=None)
+        registry = build_registry(memory=memory, user_id_getter=lambda: "test-user")
+        agent = JarvisAgent(
+            registry=registry,
+            prefs_getter=lambda: [],
+            model_client=client,
+            filler_gate=gate,
+            latency=latency,
+        )
+
+        audio_in = QueueAudioInput()
+        audio_out = CollectingAudioOutput()
+        session.input.audio = audio_in
+        session.output.audio = audio_out
+
+        await session.start(agent=agent)
+        for _ in range(3):
+            audio_in.push(silence_frame(0.1, SAMPLE_RATE))
+        await asyncio.sleep(0.05)
+
+        transcript_fut = session.commit_user_turn(transcript_timeout=2.0)
+        await asyncio.wait_for(transcript_fut, timeout=2.0)
+
+        await _wait_until(lambda: len(audio_out.frames) > 0, timeout=5.0)
+        await audio_out.wait_for_playout()
+
+        def _assistant_texts() -> list[str]:
+            return [
+                e["text"]
+                for e in publisher.events
+                if e["type"] == "transcript" and e["role"] == "assistant"
+            ]
+
+        await _wait_until(lambda: len(_assistant_texts()) > 0, timeout=5.0)
+
+        # Sanity: the filler actually fired -- otherwise this test would pass
+        # vacuously without ever exercising the race at all.
+        assert len(gate.played) == 1, "the filler never fired; widen the 0.9s delay"
+        assert _assistant_texts() == ["octocat/Hello-World has 42 stars."], _assistant_texts()
+    finally:
+        await session.aclose()
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "real-filler-latency.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(records) == 1, records
+    record = records[0]
+    assert record["tool_ms"] > 500, (
+        f"tool_ms should reflect the real ~900ms handler+synthesis span, got {record['tool_ms']}"
+    )
+    assert record["model"] == "claude-tool-test", (
+        f"model should be the escalated TOOL_MODEL, got {record['model']!r}"
+    )

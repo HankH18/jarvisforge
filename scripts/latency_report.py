@@ -184,9 +184,10 @@ def _render_report(
         lines += [
             "## By question type",
             "",
-            "R1 pins 800ms for replies that need **no external lookup**. The worker log"
-            " cannot distinguish those on its own (`tool_ms` is 0.0 even when a tool"
-            " fires), so the split below comes from the driver's utterance categories.",
+            "R1 pins 800ms for replies that need **no external lookup**. This split comes"
+            " from ground truth -- the driver's own utterance categories (`--driver-json`)"
+            " -- so, unlike the `tool_ms`-inferred fallback used when `--driver-json` isn't"
+            " given, it can certify an R1 PASS/FAIL verdict below.",
             "",
             "| category | count | p50 (ms) | p95 (ms) | max (ms) | external lookup |",
             "| --- | --- | --- | --- | --- | --- |",
@@ -207,6 +208,63 @@ def _render_report(
                 f"(p95={cs['p95']:.1f}ms, p50={cs['p50']:.1f}ms, n={int(cs['count'])}).",
                 "",
             ]
+    else:
+        # T-16, revised after an independent verifier reproduced a real
+        # defect: tool_ms IS now populated with the real measured tool span
+        # in the realistic case (jarvis.pipeline.latency.LatencyLogger's
+        # note_tool_dispatch_started()/note_tool_span() fix -- see that
+        # module's docstring for the full story, including a narrower
+        # documented residual risk that is NOT fully closed). But this
+        # script has no independent ground truth to confirm a `tool_ms`-only
+        # inference against -- the JSONL schema is pinned to exactly
+        # {turn_id, turn_end_ts, first_audio_ts, tool_ms, model}
+        # (docs/DESIGN.md §Data models), with no explicit "a tool fired"
+        # field, precisely so a schema change wasn't smuggled in as a side
+        # effect of this fix. A WRONG inference here would silently flatter
+        # the no-lookup population's p95 -- exactly the failure mode this
+        # table exists to route around -- so this section is DIAGNOSTIC
+        # ONLY: it reports the split but NEVER emits an R1 PASS/FAIL
+        # verdict. Re-run with --driver-json (the "By question type" table
+        # above, which comes from ground truth -- which utterance was
+        # actually asked -- not inference) for an authoritative R1 verdict.
+        no_lookup = [t.ttfa_ms for t in turns if t.tool_ms <= 0]
+        lookup = [t.ttfa_ms for t in turns if t.tool_ms > 0]
+        lines += [
+            "## By lookup status (from tool_ms) -- DIAGNOSTIC ONLY, not an R1 verdict",
+            "",
+            "No `--driver-json` was given. This split is INFERRED from each record's"
+            " `tool_ms` (`> 0` means a tool fired this turn -- a lookup; `== 0` means"
+            " it didn't), not read from an explicit ground-truth field -- an inference,"
+            " not a verified fact, so **no R1 PASS/FAIL verdict is computed from it**."
+            " An unverified 0 must not masquerade as a confirmed fast sample. Re-run"
+            " with `--driver-json` for an authoritative no-lookup-only R1 verdict.",
+            "",
+            "| status (inferred) | count | p50 (ms) | p95 (ms) | max (ms) |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        buckets = (("no-lookup (tool_ms<=0)", no_lookup), ("lookup (tool_ms>0)", lookup))
+        for label, values in buckets:
+            if not values:
+                continue
+            vs = _stats(values)
+            lines.append(
+                f"| {label} | {int(vs['count'])} | {vs['p50']:.1f} | {vs['p95']:.1f} | "
+                f"{vs['max']:.1f} |"
+            )
+        lines.append("")
+        lines += [
+            f"**R1 status (no-lookup turns only): CANNOT BE CERTIFIED without"
+            f" `--driver-json`** -- {len(no_lookup)} of {len(turns)} turn(s) look"
+            " no-lookup by tool_ms inference alone; that is not accepted as R1"
+            " evidence on its own.",
+            "",
+        ]
+        print(
+            f"NOTE: {len(no_lookup)}/{len(turns)} turn(s) classified no-lookup by "
+            "tool_ms inference only (no --driver-json) -- no R1 verdict computed "
+            "for them; re-run with --driver-json for a certified verdict.",
+            file=sys.stderr,
+        )
 
     lines += [
         "## By model",

@@ -42,10 +42,27 @@ def build_tts() -> tts_base.TTS:
     SPEC C2: the swap is env-var-only -- no code change, no abstraction layer
     beyond this function. "cartesia" (default) and "aura2" (Deepgram Aura-2,
     the plugin's own default model) are the two wired branches.
+
+    T-16 (R1 time-to-first-audio lever): the Cartesia branch pins
+    ``word_timestamps=False``. The installed plugin (livekit-plugins-cartesia)
+    defaults ``word_timestamps=True``, which asks Cartesia to compute and
+    stream word-level alignment data alongside every audio chunk -- including
+    the first one, on the critical path this ticket is trying to shrink. This
+    repo never consumes that data: ``AgentSession``'s own
+    ``use_tts_aligned_transcript`` (the one thing that would read it) is left
+    at its default, which is disabled (see the installed SDK's
+    ``AgentSession.__init__`` docstring: "When NOT_GIVEN, it's disabled"), and
+    nothing else in ``pipeline/`` reads a TTS-provided transcript either (the
+    spoken transcript published on the data channel comes from the chat_ctx
+    item's own text, see ``session_wiring._on_conversation_item_added``).
+    Turning off unused alignment work is a real cost removed, not a claimed
+    speed number -- Cartesia TTS is unmeasurable right now (see
+    docs/latency-report.md); this cannot be verified live until the account's
+    credits are restored.
     """
     provider = os.environ.get("TTS_PROVIDER", _DEFAULT_TTS_PROVIDER).strip().lower()
     if provider == "aura2":
         return deepgram.TTS()
     if provider == "cartesia":
-        return cartesia.TTS()
+        return cartesia.TTS(word_timestamps=False)
     raise ValueError(f"unknown TTS_PROVIDER={provider!r}, expected one of {TTS_PROVIDERS}")

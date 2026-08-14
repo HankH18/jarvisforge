@@ -22,6 +22,8 @@ reasons that both had to be fixed together:
 from __future__ import annotations
 
 import asyncio
+import json
+import threading
 import time
 import types
 from datetime import UTC, datetime
@@ -437,6 +439,106 @@ async def test_a_failed_filler_does_not_turn_a_successful_lookup_into_a_refusal(
     # not refusing before ever calling it.
     assert client.calls, "synthesize_grounded never reached the model -- refused instead"
     assert '"ok": true' in client.calls[0]["user"].lower()
+
+
+# ---- T-16 follow-up: cancellation during the handler await must not lose a
+# turn a filler already spoke for --------------------------------------------
+
+
+def _cancellable_blocking_spec(
+    *, name: str, heavy: bool, started: threading.Event, delay_s: float
+) -> ToolSpec:
+    """Like ``_blocking_spec``, but signals ``started`` the instant the
+    handler begins running on its worker thread -- lets a test synchronize
+    on "the handler is genuinely in flight" before cancelling, instead of
+    racing a fixed sleep."""
+
+    def handler(**_: object) -> ToolResult:
+        started.set()
+        time.sleep(delay_s)
+        return ToolResult(
+            source=name, fetched_at=datetime.now(UTC).isoformat(), data={"ok": True}, error=None
+        )
+
+    return ToolSpec(
+        name=name,
+        description="synthetic tool for T-16 cancellation tests",
+        parameters={"type": "object", "properties": {}, "required": []},
+        handler=handler,
+        heavy=heavy,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_the_handler_await_still_records_a_real_tool_span(tmp_path):
+    """T-16 follow-up, verifier-reported: the ``finally`` that calls
+    ``note_tool_span()`` used to wrap only the SECOND ``await`` (the
+    synthesis call), not the first (the handler call). Since
+    ``asyncio.CancelledError`` is a ``BaseException`` -- not caught by
+    ``except Exception`` -- a cancellation while still inside the handler
+    await propagated straight out with NO record ever written, silently
+    dropping a turn even when a filler had already spoken for it (a real,
+    audible response the user heard). A silently missing turn is worse than
+    a wrong one for R1: it removes a slow sample from the population
+    entirely, rather than merely mis-describing it.
+
+    This test: dispatch starts (heavy tool), a filler "speaks" for this turn
+    (simulated directly via ``latency.first_audio()``, mirroring what the
+    real ``FillerGate`` would trigger), the task is force-cancelled while
+    still inside the handler's blocking await, and:
+      1. A record IS written, with a REAL partial ``tool_ms`` (not 0.0, not
+         fabricated) and the real routed ``model`` -- not lost.
+      2. ``CancelledError`` still propagates to the caller -- never swallowed
+         (T-17's cancellation semantics are unaffected by this fix).
+
+    Fails against the pre-fix code: no record is ever written (the ``finally``
+    on only the second await never runs), so ``(tmp_path / "latency.jsonl")``
+    does not even exist.
+    """
+    started = threading.Event()
+    spec = _cancellable_blocking_spec(name="cancel_me", heavy=True, started=started, delay_s=1.0)
+
+    latency = LatencyLogger(path=tmp_path / "latency.jsonl", model="claude-convo-test")
+    latency.turn_ended(ts=time.time())
+
+    client = RecordingModelClient(reply="should never be reached")
+    dispatch = _make_dispatcher(
+        spec, prefs_getter=lambda: [], model_client=client, gate=None, latency=latency
+    )
+
+    session = _FakeToolSession(transcript="please use cancel_me")
+    ctx = _FakeRunContext(session)
+
+    task = asyncio.create_task(dispatch({}, ctx))
+    await asyncio.get_running_loop().run_in_executor(None, started.wait, 2.0)
+    assert started.is_set(), "handler never started; widen the timing margin"
+
+    # A filler already spoke for this turn while the tool was still in
+    # flight -- first_audio() defers (a tool dispatch is pending) and
+    # remembers this as the turn's real first-audio timestamp, exactly as
+    # the real FillerGate's session.say() would trigger via
+    # session_wiring._on_agent_state_changed.
+    filler_ts = time.time()
+    deferred = latency.first_audio(ts=filler_ts)
+    assert deferred is None, "sanity: the filler's speaking transition must defer, not finalize"
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert (tmp_path / "latency.jsonl").exists(), (
+        "a turn the user genuinely heard a filler for must not vanish entirely"
+    )
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "latency.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(records) == 1, records
+    record = records[0]
+    assert record["first_audio_ts"] == filler_ts, "must use the filler's real timestamp"
+    assert record["tool_ms"] > 0, f"tool_ms must be a real partial span, got {record['tool_ms']}"
+    assert record["model"] == "claude-tool-test", "model must be the real routed decision"
 
 
 # ---- jarvis.pipeline.cadence_wiring, directly -------------------------------

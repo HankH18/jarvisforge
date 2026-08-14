@@ -88,6 +88,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -104,6 +105,8 @@ from jarvis.tools.github import GITHUB_DIGEST_TOOL, GITHUB_QUERY_TOOL
 from jarvis.tools.registry import ToolRegistry, ToolSpec
 from jarvis.tools.self_manifest import SELF_MANIFEST_TOOL
 from jarvis.tools.weather import WEATHER_TOOL
+
+from .latency import LatencyLogger
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +258,7 @@ def _make_dispatcher(
     prefs_getter: Callable[[], list[str]],
     model_client: ModelClient | None,
     gate: FillerGate | None = None,
+    latency: LatencyLogger | None = None,
 ) -> Callable[[dict[str, Any], RunContext], Any]:
     """Builds the raw-function-tool callable for one ``ToolSpec``. See the
     module docstring for why this speaks the answer directly and raises
@@ -275,10 +279,29 @@ def _make_dispatcher(
     the filler assets were unavailable at session start -- ``None`` degrades
     to running the tool call with no filler-eligibility at all, never a
     crash (see that module's docstring).
+
+    ``latency`` (T-16) is the session's real ``LatencyLogger``, or ``None``
+    (tests that don't care about the JSONL log). When given, ``_dispatch``
+    marks the dispatch as started (``note_tool_dispatch_started()``) before
+    anything else runs, and once the measured handler+synthesis span and the
+    actually-routed model are known, hands them to ``latency.note_tool_span()``
+    -- see that method's docstring for why this is the fix for ``tool_ms``
+    always logging 0.0 and ``model`` always logging CONVO_MODEL even on an
+    escalated turn, AND for the second, independently-verifier-reported bug:
+    a slow `heavy` tool's filler acknowledgment (``gate``, below) speaking
+    before the tool finishes used to close the turn's record early with
+    those same wrong defaults.
     """
 
     async def _dispatch(raw_arguments: dict[str, Any], ctx: RunContext) -> None:
         question = _last_user_utterance(ctx.session.history) or f"({spec.name} request)"
+        # T-16: mark this *before* the handler even runs -- well before any
+        # filler could possibly fire -- so a "speaking" transition that
+        # happens while the tool is still in flight (the filler) does not
+        # finalize the turn's latency record early. See
+        # LatencyLogger.first_audio()'s docstring for the full story.
+        if latency is not None:
+            latency.note_tool_dispatch_started()
 
         async def _run_tool_and_synthesize() -> str:
             """The real end-to-end "heavy" span: the tool handler AND the
@@ -299,27 +322,76 @@ def _make_dispatcher(
             Wrapping both calls in one guarded awaitable makes the 500ms
             threshold apply to the span the user actually experiences as
             "slow", with still at most one filler per dispatch.
-            """
-            try:
-                result = await asyncio.to_thread(spec.handler, **raw_arguments)
-            except Exception as exc:  # a broken handler must not crash the voice loop
-                logger.exception("tool handler %s raised", spec.name)
-                result = ToolResult(
-                    source=spec.name,
-                    fetched_at=datetime.now(UTC).isoformat(),
-                    data={},
-                    error=str(exc),
-                )
 
+            T-16: this is also the span ``latency.note_tool_span()`` records
+            as ``tool_ms`` -- start to finish, handler AND synthesis, wall
+            clock (``time.monotonic()``), regardless of which branch below
+            actually produces the answer (success, a caught handler
+            exception, or a caught synthesis exception all still record a
+            real span rather than silently leaving it at 0.0).
+
+            T-16 follow-up (verifier-reported): the recording used to live in
+            a ``finally`` on only the SECOND ``await`` (the synthesis call),
+            not the first (the handler call). ``asyncio.CancelledError`` is a
+            ``BaseException``, not caught by ``except Exception`` -- so a
+            cancellation while still inside the handler await propagated
+            straight out of this function with NO record ever written,
+            silently dropping a turn even if a filler had already spoken for
+            it (a real, audible response the user heard). ``model`` is now
+            resolved up front (``route_model`` is a pure function of
+            ``spec.heavy`` + env vars, independent of the handler's outcome,
+            so there is no reason to defer it), and the ONE outer
+            ``try/finally`` below wraps BOTH awaits: ``finally`` always runs
+            on every exit -- normal return, a caught ``Exception`` from
+            either inner block, or an uncaught ``CancelledError`` propagating
+            through -- and a bare ``finally`` never swallows the exception it
+            is unwinding from, so cancellation still reaches the caller
+            exactly as before (T-17's cancellation semantics are unaffected;
+            nothing here catches or suppresses it). A cancelled turn's
+            ``tool_ms`` is therefore a REAL partial span (however long the
+            tool ran before being cut off) and ``model`` is the real routed
+            decision -- never a fabricated completion. Whether a record was
+            written for a cancelled turn is INDISTINGUISHABLE, in the pinned
+            5-field schema, from an ordinary slow completed turn: there is no
+            field to mark "cancelled" without either adding one (the schema
+            is pinned in docs/DESIGN.md #Data models, outside this ticket's
+            file scope) or overloading `model`/`tool_ms` with a sentinel
+            (which would corrupt their real meaning for legitimate
+            aggregation in `scripts/latency_report.py`'s "By model" table).
+            Stated plainly rather than worked around.
+            """
+            start = time.monotonic()
+            model = route_model([spec])
             try:
-                model = route_model([spec])
-                prefs = prefs_getter()
-                return await asyncio.to_thread(
-                    synthesize_grounded, question, [result], prefs, model=model, client=model_client
-                )
-            except Exception:
-                logger.exception("grounded synthesis failed for tool %s", spec.name)
-                return REFUSAL
+                try:
+                    result = await asyncio.to_thread(spec.handler, **raw_arguments)
+                except Exception as exc:  # a broken handler must not crash the voice loop
+                    logger.exception("tool handler %s raised", spec.name)
+                    result = ToolResult(
+                        source=spec.name,
+                        fetched_at=datetime.now(UTC).isoformat(),
+                        data={},
+                        error=str(exc),
+                    )
+
+                try:
+                    prefs = prefs_getter()
+                    answer = await asyncio.to_thread(
+                        synthesize_grounded,
+                        question,
+                        [result],
+                        prefs,
+                        model=model,
+                        client=model_client,
+                    )
+                except Exception:
+                    logger.exception("grounded synthesis failed for tool %s", spec.name)
+                    answer = REFUSAL
+
+                return answer
+            finally:
+                if latency is not None:
+                    latency.note_tool_span(tool_ms=(time.monotonic() - start) * 1000.0, model=model)
 
         call = _run_tool_and_synthesize()
         answer = await (gate.guard(call, heavy=spec.heavy) if gate is not None else call)
@@ -336,17 +408,23 @@ def livekit_tools(
     prefs_getter: Callable[[], list[str]],
     model_client: ModelClient | None = None,
     gate: FillerGate | None = None,
+    latency: LatencyLogger | None = None,
 ) -> list[RawFunctionTool]:
     """Adapts every ``ToolSpec`` in ``registry`` into a livekit
     ``RawFunctionTool`` ready to hand to ``Agent(tools=...)``.
 
-    ``gate`` (the real T-6 ``FillerGate``) is threaded through to every
-    dispatcher unchanged; see ``_make_dispatcher``.
+    ``gate`` (the real T-6 ``FillerGate``) and ``latency`` (the real T-1
+    ``LatencyLogger``, T-16) are threaded through to every dispatcher
+    unchanged; see ``_make_dispatcher``.
     """
     tools: list[RawFunctionTool] = []
     for spec in registry:
         dispatcher = _make_dispatcher(
-            spec, prefs_getter=prefs_getter, model_client=model_client, gate=gate
+            spec,
+            prefs_getter=prefs_getter,
+            model_client=model_client,
+            gate=gate,
+            latency=latency,
         )
         tools.append(
             function_tool(

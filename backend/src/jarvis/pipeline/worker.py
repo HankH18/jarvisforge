@@ -11,13 +11,33 @@ acknowledgment when a `heavy` tool call outlives ``FILLER_THRESHOLD_MS``, see
 ``cadence_wiring.build_filler_gate`` / ``tools_wiring._dispatch``) and a
 ``TurnController`` (barge-in pause + stop-phrase cancel, fed from the same
 session events ``session_wiring.wire_session_events`` already wires).
+
+T-16 (R1: time-to-first-audio on no-lookup turns <= 800ms p95): the
+``AgentSession`` below is built with ``turn_handling=TurnHandlingOptions(
+preemptive_generation={"preemptive_tts": True})``. The SDK's own preemptive
+generation (``livekit.agents.voice.turn.PreemptiveGenerationOptions``,
+installed livekit-agents 1.6.10) is already ON by default
+(``enabled: True``), but with ``preemptive_tts: False`` it only starts the
+LLM call early, on a not-yet-final transcript -- TTS still waits for the
+turn to be officially confirmed before it starts synthesizing. Setting
+``preemptive_tts: True`` lets TTS *also* start synthesizing the reply before
+confirmation, so by the time endpointing actually confirms the turn is over
+(the moment ``latency.turn_ended()`` opens the record this ticket measures
+from), synthesis is already underway or done -- directly shrinking the
+turn_end -> first-audio gap R1 measures, for exactly the no-tool-call chat
+turns that path covers (a fired tool still goes through
+``tools_wiring._dispatch``'s own ``session.say()``, unaffected either way).
+This is a live SDK feature, not something jarvisforge builds; the "levers"
+comment is code-level, evidence is the installed SDK source
+(``livekit/agents/voice/turn.py``), not a live measurement (blocked --
+see docs/latency-report.md).
 """
 
 from __future__ import annotations
 
 import os
 
-from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
+from livekit.agents import AgentSession, JobContext, TurnHandlingOptions, WorkerOptions, cli
 
 from jarvis.cadence.interrupt import TurnController
 
@@ -28,6 +48,11 @@ from .latency import LatencyLogger
 from .providers import build_llm, build_stt, build_tts
 from .session_wiring import wire_session_events
 from .tools_wiring import LazyMemoryStore, build_registry
+
+# T-16: TTS already starts synthesizing before the turn is officially
+# confirmed (see module docstring); LLM-side preemptive generation was
+# already on by default.
+_TURN_HANDLING = TurnHandlingOptions(preemptive_generation={"preemptive_tts": True})
 
 
 def _resolve_user_id(room: object) -> str:
@@ -59,6 +84,7 @@ async def entrypoint(ctx: JobContext) -> None:
         stt=build_stt(),
         llm=build_llm(),
         tts=build_tts(),
+        turn_handling=_TURN_HANDLING,
     )
 
     publisher = DataChannelPublisher(ctx.room)
@@ -72,6 +98,7 @@ async def entrypoint(ctx: JobContext) -> None:
         registry=registry,
         prefs_getter=lambda: memory.preferences(_resolve_user_id(ctx.room)),
         filler_gate=filler_gate,
+        latency=latency,
     )
     await session.start(agent=agent, room=ctx.room)
 
