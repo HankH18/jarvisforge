@@ -6,11 +6,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
+import logging
 import time
 from typing import Literal, Protocol
 
 import livekit.rtc as rtc
+
+logger = logging.getLogger(__name__)
 
 # The SDK's own AgentState also has "initializing"/"idle" (pre-conversation
 # states); DESIGN.md pins the wire vocabulary to just these four. "working" is
@@ -55,12 +60,49 @@ class DataChannelPublisher:
 
     def __init__(self, room: rtc.Room) -> None:
         self._room = room
+        self._pending: set[asyncio.Task] = set()
 
     @property
     def room(self) -> rtc.Room:
         return self._room
 
     def publish(self, payload: dict) -> None:
-        self._room.local_participant.publish_data(
+        """Send one event on the ``jarvis`` data channel.
+
+        ``publish_data`` is a *coroutine function* in livekit-rtc. Calling it
+        without scheduling builds a coroutine object and drops it on the
+        floor: no bytes ever leave the process, and the only symptom is a
+        RuntimeWarning buried in the worker log. That is how every
+        agent_state and transcript event silently failed to reach the SPA.
+        ``publish`` is pinned synchronous in DESIGN.md §Interfaces, so we
+        schedule the coroutine on the running loop instead of awaiting it.
+        """
+        result = self._room.local_participant.publish_data(
             json.dumps(payload).encode("utf-8"), reliable=True, topic="jarvis"
         )
+        if not inspect.isawaitable(result):
+            return  # a synchronous SDK build, or a test double: nothing to schedule
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            result.close()  # no loop: close the coroutine so it cannot warn later
+            logger.error(
+                "DataChannelPublisher.publish() called with no running event loop; "
+                "event dropped: %s",
+                payload.get("type"),
+            )
+            return
+        task = loop.create_task(result)
+        # Hold a reference: asyncio only keeps weak ones, so an unreferenced
+        # task can be garbage-collected mid-flight.
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+        task.add_done_callback(self._log_publish_failure)
+
+    @staticmethod
+    def _log_publish_failure(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("data-channel publish failed: %r", exc)
