@@ -11,12 +11,20 @@
 #   a. GET  /healthz     -> HTTP 200
 #   b. POST /api/token   -> HTTP 200, JSON body with non-empty string "token"
 #                           (3 dot-separated JWT segments) and "url" (starts "ws")
-#   c. worker registration via `flyctl status` - DEGRADES GRACEFULLY: if flyctl
-#      is missing or unauthenticated this prints a SKIP (not a PASS) explaining
-#      what a human must run.
+#   c. worker liveness via `flyctl machine list` - proves the worker process
+#      group is actually SERVING, not merely present: it must have a machine
+#      in state "started" with no recent crash/restart in its Fly event
+#      history (see the check's own comment below for why state alone is not
+#      enough, and docs/ops-smoke-test.md for the credentials this needs).
 #
-# Exit code is non-zero iff at least one check FAILed. SKIPs never affect the
-# exit code by themselves.
+# There is no such thing as a SKIP in this script (T-23): every condition that
+# used to print SKIP-and-move-on (flyctl missing, flyctl unauthenticated,
+# unparseable output, python3 missing) now calls fail(). An unrunnable check
+# against a target that is supposed to be deployed is a failure, not a pass -
+# a green exit code here means every check actually ran and actually passed.
+#
+# Exit code is non-zero iff at least one check FAILed (which now includes
+# every "could not be checked" condition above).
 
 set -euo pipefail
 
@@ -38,10 +46,6 @@ fail() {
     CHECKS_RUN=$((CHECKS_RUN + 1))
     FAILURES=$((FAILURES + 1))
     printf 'FAIL: %s\n' "$1"
-}
-
-skip() {
-    printf 'SKIP: %s\n' "$1"
 }
 
 printf 'Target: %s\n' "$TARGET_URL"
@@ -187,30 +191,62 @@ PY
 fi
 
 # ---------------------------------------------------------------------------
-# c. worker registration via flyctl - degrades gracefully
+# c. worker liveness via `flyctl machine list --json`
+#
+# Grepping for the word "worker" is NOT a check: a process group that exists
+# in fly.toml but was never scaled up still prints "worker" with a machine
+# count of zero. And machine STATE ALONE is not a check either: T-9's own
+# postmortem (see fly.toml's [[vm]] comment) found the worker OOM-crashing
+# and restarting in a loop while `flyctl status` kept reading state
+# "started" -- it happened to be sampled mid-loop, right after a restart.
+# The worker also takes no public traffic (fly.toml [http_service]
+# processes=["web"] only), so it has no Fly-configured health check either;
+# Fly's `checks` array will normally be empty for it.
+#
+# The signal actually used to prove SERVING (not merely present): each
+# worker machine's recent Fly Machines-API event history, which `flyctl
+# machine list -j` surfaces per Fly's published Machines API resource shape
+# (id/state/config/events/checks) -- state alone hides exactly the
+# restart-loop T-9 hit; a same-second "exit" event does not. A machine only
+# counts as serving if it is state=="started" AND has recorded no "exit"
+# event within the last $SMOKE_WORKER_STABLE_WINDOW_SECONDS seconds, AND any
+# Fly-configured checks it does have all report "passing". NOTE: this event-
+# field assumption is NOT verified against a live authenticated flyctl in
+# this environment (flyctl is installed but unauthenticated here) -- see
+# docs/ops-smoke-test.md for that caveat and how to re-verify it once
+# credentials exist. What IS verified against the real installed flyctl
+# binary is the *command shape* itself (`flyctl machine list -a <app> -j`
+# argument-parses and reaches the network call; `flyctl machine status
+# --json` does NOT exist in this flyctl version, which is why machine list
+# is used instead of a per-machine status call).
+#
+# Per T-23 acceptance #1: every branch that cannot positively establish
+# SERVING calls fail(), never a non-failing skip. A fresh deploy will
+# legitimately fail this check for the first $SMOKE_WORKER_STABLE_WINDOW_SECONDS
+# seconds after it starts -- that is intentional, not a bug: "just started"
+# and "stably serving" are different claims.
 # ---------------------------------------------------------------------------
+SMOKE_WORKER_STABLE_WINDOW_SECONDS="${SMOKE_WORKER_STABLE_WINDOW_SECONDS:-300}"
+
 if ! command -v flyctl >/dev/null 2>&1; then
-    skip "worker registration check - flyctl is not installed; a human must run \`flyctl status -a ${FLY_APP_NAME}\` and confirm the 'worker' process group shows a started machine"
+    fail "worker liveness check - flyctl is not installed; cannot verify the worker process group is serving (install flyctl, or run \`flyctl machine list -a ${FLY_APP_NAME} -j\` by hand)"
+elif ! command -v python3 >/dev/null 2>&1; then
+    fail "worker liveness check - python3 is not available to parse \`flyctl machine list --json\`; cannot verify the worker process group is serving"
 else
-    fly_status_output="$(mktemp)"
-    if flyctl status -a "$FLY_APP_NAME" --json >"$fly_status_output" 2>&1; then
-        # Grepping for the word "worker" is NOT a check: a process group that
-        # exists in fly.toml but was never scaled up still prints "worker" with
-        # a machine count of zero, and Fly does not always auto-create machines
-        # for secondary process groups. Parse the machine states instead, and
-        # require at least one actually STARTED worker machine.
-        if command -v python3 >/dev/null 2>&1; then
-            worker_summary="$(python3 - "$fly_status_output" <<'PY' 2>/dev/null || true
-import json, sys
+    fly_machines_output="$(mktemp)"
+    if flyctl machine list -a "$FLY_APP_NAME" -j >"$fly_machines_output" 2>&1; then
+        worker_verdict="$(python3 - "$fly_machines_output" "$SMOKE_WORKER_STABLE_WINDOW_SECONDS" <<'PY' 2>/dev/null || true
+import json, sys, time
 
 try:
     with open(sys.argv[1]) as fh:
         data = json.load(fh)
 except Exception:
-    print("UNPARSEABLE")
+    print("UNKNOWN||||could not parse `flyctl machine list --json` output as JSON")
     raise SystemExit(0)
 
-machines = data.get("Machines") or data.get("machines") or []
+stable_window = float(sys.argv[2])
+machines = data if isinstance(data, list) else (data.get("Machines") or data.get("machines") or [])
 
 
 def group_of(m):
@@ -224,34 +260,87 @@ def group_of(m):
 
 
 workers = [m for m in machines if group_of(m).lower() == "worker"]
+total = len(workers)
 started = [m for m in workers if str(m.get("state") or m.get("State") or "").lower() == "started"]
-print(f"{len(workers)} {len(started)}")
+
+now = time.time()
+serving = 0
+bad_reasons = []
+
+for m in started:
+    mid = m.get("id") or m.get("ID") or "?"
+    checks = m.get("checks") or []
+    failing_checks = [c for c in checks if str(c.get("status") or "").lower() not in ("passing", "")]
+    if failing_checks:
+        c0 = failing_checks[0]
+        bad_reasons.append(f"{mid} has a non-passing Fly health check ({c0.get('name')}={c0.get('status')})")
+        continue
+
+    events = m.get("events")
+    if events is None:
+        bad_reasons.append(f"{mid} - no event history in flyctl output; cannot confirm it has not just crash-restarted")
+        continue
+
+    recent_exit_age = None
+    for e in events:
+        if str(e.get("type") or "").lower() != "exit":
+            continue
+        try:
+            ts = float(e.get("timestamp"))
+        except (TypeError, ValueError):
+            continue
+        ts_sec = ts / 1000.0 if ts > 1e12 else ts
+        age = now - ts_sec
+        if age < 0:
+            continue
+        if recent_exit_age is None or age < recent_exit_age:
+            recent_exit_age = age
+
+    if recent_exit_age is not None and recent_exit_age <= stable_window:
+        bad_reasons.append(f"{mid} exited {int(recent_exit_age)}s ago and is now reporting state=started again -- crash-looping, not serving")
+        continue
+
+    serving += 1
+
+if serving > 0:
+    print(f"OK|{total}|{len(started)}|{serving}|")
+elif started:
+    reason = "; ".join(bad_reasons or ["no started machine could be confirmed stable"])
+    print(f"CRASHLOOP|{total}|{len(started)}|{serving}|{reason}")
+else:
+    print(f"NOSTART|{total}|{len(started)}|{serving}|")
 PY
 )"
-            if [ -z "$worker_summary" ] || [ "$worker_summary" = "UNPARSEABLE" ]; then
-                skip "worker registration check - could not parse \`flyctl status --json\` output; a human must run \`flyctl status -a ${FLY_APP_NAME}\` and confirm a 'worker' machine is started"
-            else
-                worker_total="${worker_summary%% *}"
-                worker_started="${worker_summary##* }"
-                if [ "$worker_total" -eq 0 ]; then
+        IFS='|' read -r w_tag w_total w_started w_serving w_reason <<<"$worker_verdict"
+        case "$w_tag" in
+            OK)
+                pass "worker process group has ${w_serving}/${w_started} machine(s) confirmed SERVING (state=started, no exit event in the last ${SMOKE_WORKER_STABLE_WINDOW_SECONDS}s, any Fly health checks passing)"
+                ;;
+            CRASHLOOP)
+                fail "worker process group is NOT serving -- ${w_reason}"
+                ;;
+            NOSTART)
+                if [ "${w_total:-0}" -eq 0 ]; then
                     fail "no 'worker' process-group machine exists for app ${FLY_APP_NAME} (the worker is not deployed)"
-                elif [ "$worker_started" -eq 0 ]; then
-                    fail "the 'worker' process group for ${FLY_APP_NAME} has ${worker_total} machine(s) but NONE in state 'started' - scale it up (\`flyctl scale count worker=1 -a ${FLY_APP_NAME}\`)"
                 else
-                    pass "worker process group has ${worker_started}/${worker_total} machine(s) in state 'started'"
+                    fail "the 'worker' process group for ${FLY_APP_NAME} has ${w_total} machine(s) but NONE in state 'started' - scale it up (\`flyctl scale count worker=1 -a ${FLY_APP_NAME}\`)"
                 fi
-            fi
-        else
-            skip "worker registration check - python3 not available to parse \`flyctl status --json\`; a human must confirm a 'worker' machine is started"
-        fi
+                ;;
+            UNKNOWN)
+                fail "worker liveness check could not be completed (${w_reason:-unparseable flyctl output}); an unrunnable check is not a pass"
+                ;;
+            *)
+                fail "worker liveness check produced no parseable verdict (raw: ${worker_verdict:-<empty>})"
+                ;;
+        esac
     else
-        if grep -qi 'no access token available\|not authenticated\|auth login' "$fly_status_output"; then
-            skip "worker registration check - flyctl is not authenticated in this environment; a human must run \`flyctl auth login\` then \`flyctl status -a ${FLY_APP_NAME}\` and confirm the 'worker' process group shows a started machine"
+        if grep -qi 'no access token available\|not authenticated\|auth login' "$fly_machines_output"; then
+            fail "worker liveness check - flyctl is not authenticated in this environment (\`flyctl auth login\` required); cannot verify the worker is serving, so this check FAILS rather than silently passing"
         else
-            skip "worker registration check - \`flyctl status -a ${FLY_APP_NAME}\` failed ($(head -c 200 "$fly_status_output" | tr '\n' ' ')); a human must run \`flyctl status -a ${FLY_APP_NAME}\` directly and confirm the 'worker' process group shows a started machine"
+            fail "worker liveness check - \`flyctl machine list -a ${FLY_APP_NAME} -j\` failed ($(head -c 200 "$fly_machines_output" | tr '\n' ' '))"
         fi
     fi
-    rm -f "$fly_status_output"
+    rm -f "$fly_machines_output"
 fi
 
 # ---------------------------------------------------------------------------
