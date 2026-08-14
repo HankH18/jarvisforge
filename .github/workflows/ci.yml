@@ -19,3 +19,6 @@ jobs:
 
       - name: Test
         run: cd backend && uv run pytest -q
+
+      - name: Scope guard hook tests
+        run: bash .claude/hooks/tests/run_scope_guard_tests.sh

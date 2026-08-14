@@ -20,6 +20,12 @@ authoritative). Your job is execution, not planning.
 4. **Stay inside the ticket's file scope.** A hook denies edits
    outside it. If the ticket genuinely requires touching an
    out-of-scope file, that's a plan defect — stop and tell the human.
+   This rule binds regardless of mechanism: the hook only technically
+   enforces it for the Edit and Write tools (see "Scope guard
+   coverage" below) — it is still a protocol violation to route a
+   scope-violating write through Bash (`sed -i`, a heredoc redirect,
+   `cp`, `mv`, `git checkout -- <path>`, etc.) just because the hook
+   doesn't see it.
 5. **A ticket is done only when its verify command exits 0.** A hook
    runs it when you mark the Task completed and blocks completion on
    failure. Never weaken a test to pass it.
@@ -47,6 +53,36 @@ authoritative). Your job is execution, not planning.
 - Model IDs come from $CONVO_MODEL / $TOOL_MODEL only. Do not hardcode.
 - T-13 has a placeholder acceptance item blocked on a missing PRD
   region (SPEC §Open questions) — surface it when T-13 is claimed.
+
+## Scope guard coverage (T-20)
+
+`.claude/hooks/scope_guard.sh` runs as a `PreToolUse` hook matched to
+`Edit|Write` only (`.claude/settings.json`). It does **not** run for
+`Bash`, so a write performed through a shell command (`sed -i`, a
+heredoc redirect, `cp`, `mv`, `git checkout -- <path>`, `python -c
+"open(...).write(...)"`, etc.) is not technically intercepted.
+
+This is a deliberate, disclosed gap, not an oversight: sound
+detection of "did this arbitrary shell command write outside scope"
+requires actually parsing the command the way a shell does — quoting,
+command substitution, pipes, heredocs, `eval`, aliases, and encoding
+tricks all defeat a regex/token heuristic. A heuristic good enough to
+catch the obvious cases is also good enough to false-positive on
+innocuous ones (a `>` inside a quoted `git commit -m "..."` message,
+a `cp` in a comment, a `sed` invocation with no real target) — and
+this repo's own protocol treats that failure mode as strictly worse
+than the bypass it would guard against: a hook that blocks `git
+commit`, `uv run pytest`, or `npm run build` stops every ticket, not
+just a mis-scoped one. Given that trade, this gap is left open rather
+than patched with a heuristic that provides false confidence while
+remaining trivially defeatable by minimal obfuscation.
+
+The compensating control is rule 4 above: staying in scope is a
+protocol obligation independent of whether a hook enforces it for the
+mechanism used. If a ticket's work seems to require a Bash-mediated
+write outside its declared scope, that is the same plan defect as an
+out-of-scope Edit — stop and tell the human, don't route around the
+hook.
 
 ## Session start
 
