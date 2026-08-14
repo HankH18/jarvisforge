@@ -313,7 +313,7 @@
         "Preference stated by voice in session 1 is honored in session 2 (test via prefs injection path)",
         "scripts/load_smoke.sh sustains 10 concurrent sessions without errors"
       ],
-      "verify": "cd backend && uv run pytest tests/multiuser -q && bash scripts/load_smoke.sh 10",
+      "verify": "(cd backend && uv run pytest tests/multiuser -q) && bash scripts/load_smoke.sh 10",
       "scope": [
         "backend/src/jarvis/auth/**",
         "backend/src/jarvis/server/**",

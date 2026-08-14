@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useJarvisSession, type UseJarvisSessionOptions } from './hooks/useJarvisSession'
 import { AgentStateIndicator } from './components/AgentStateIndicator'
 import { TranscriptView } from './components/TranscriptView'
@@ -6,6 +6,9 @@ import { Controls } from './components/Controls'
 import { usePassiveWakeSession } from './state/usePassiveWakeSession'
 import { createWakeDetector } from './wake/createWakeDetector'
 import type { WakeDetector } from './wake/wakeDetector'
+import { useClerkAuth, type AuthState } from './auth/useClerkAuth'
+import { createAuthFetchToken } from './auth/authFetchToken'
+import { SignInPanel } from './auth/SignInPanel'
 import './App.css'
 
 export interface AppWakeOptions {
@@ -13,8 +16,31 @@ export interface AppWakeOptions {
   createDetector?: () => Promise<WakeDetector>
 }
 
-export default function App(props?: { session?: UseJarvisSessionOptions; wake?: AppWakeOptions }) {
-  const session = useJarvisSession(props?.session)
+export interface AppAuthOptions {
+  /** default: the real Clerk-backed hook, auth/useClerkAuth */
+  useAuth?: () => AuthState
+}
+
+export default function App(props?: {
+  session?: UseJarvisSessionOptions
+  wake?: AppWakeOptions
+  auth?: AppAuthOptions
+}) {
+  // T-10: Clerk sign-in. `auth.status` drives the header's sign-in widget
+  // only -- the actual security boundary is server-side (/api/token 401s
+  // an unauthenticated or forged request regardless of what this renders,
+  // see backend jarvis.auth.clerk). When no `session.fetchToken` override
+  // is supplied (real usage, as opposed to the test double every existing
+  // test injects), outgoing token requests are wrapped to carry
+  // `Authorization: Bearer <Clerk session token>` once signed in.
+  const useAuth = props?.auth?.useAuth ?? useClerkAuth
+  const auth = useAuth()
+  const authFetchToken = useMemo(() => createAuthFetchToken(auth), [auth])
+  const sessionOptions: UseJarvisSessionOptions = {
+    ...props?.session,
+    fetchToken: props?.session?.fetchToken ?? authFetchToken,
+  }
+  const session = useJarvisSession(sessionOptions)
   const [roomName, setRoomName] = useState('')
   // R11 / T-12 acceptance 3: explicit opt-in, default OFF. Passive
   // listening -- and the local (non-LiveKit) mic capture it implies --
@@ -43,6 +69,7 @@ export default function App(props?: { session?: UseJarvisSessionOptions; wake?: 
       <header className="app__header">
         <h1 className="app__title">Jarvis</h1>
         <p className="app__tagline">A calm voice console for your agent.</p>
+        <SignInPanel auth={auth} />
       </header>
 
       <main className="app__main">
