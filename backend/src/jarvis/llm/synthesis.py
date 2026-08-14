@@ -41,7 +41,33 @@ from .policy import ANSWER_POLICY
 from .routing import convo_model
 from .types import REFUSAL, ToolResult
 
-_MAX_TOKENS = 1024
+# _MAX_TOKENS is a HARD CAP shared by two very different things depending on
+# the model: on claude-sonnet-4-6 (TOOL_MODEL when this constant was first
+# set to 1024), omitting the `thinking` request parameter meant thinking was
+# OFF, so the entire budget went to the answer text -- 1024 was ample for a
+# short grounded reply.
+#
+# TOOL_MODEL is now claude-sonnet-5, and every heavy-tool turn escalates to
+# it via jarvis.llm.routing.route_model(). On Sonnet 5, omitting `thinking`
+# does NOT mean thinking is off: adaptive thinking (equivalent to explicitly
+# passing `thinking={"type": "adaptive"}`) runs BY DEFAULT, and max_tokens
+# caps thinking tokens and response tokens TOGETHER, not separately. Left at
+# 1024, a real adaptive-thinking pass on a non-trivial synthesis question
+# (e.g. summarizing PRs for the github_qa/agent_pr heavy tools) can consume
+# most or all of the budget before any answer text is emitted, truncating
+# the reply mid-sentence -- exactly the failure that shows up in the T-7
+# golden eval as an unexplained missing_include, not as an obvious
+# token-budget error.
+#
+# 4096 leaves comfortable headroom for both on a heavy-tool turn: several
+# thousand tokens of adaptive thinking plus a full grounded answer (these
+# are short, voice-oriented replies -- realistically well under a few
+# hundred tokens each). CONVO_MODEL (claude-haiku-4-5) never runs thinking
+# when the parameter is omitted (it predates the adaptive-thinking tier), so
+# raising this bound only ever gives CONVO_MODEL turns more headroom for a
+# longer answer -- it cannot make Haiku spend budget on thinking it wasn't
+# already not doing.
+_MAX_TOKENS = 4096
 
 
 class ModelClient(Protocol):
