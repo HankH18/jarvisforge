@@ -3,11 +3,32 @@ import { useJarvisSession, type UseJarvisSessionOptions } from './hooks/useJarvi
 import { AgentStateIndicator } from './components/AgentStateIndicator'
 import { TranscriptView } from './components/TranscriptView'
 import { Controls } from './components/Controls'
+import { usePassiveWakeSession } from './state/usePassiveWakeSession'
+import { createWakeDetector } from './wake/createWakeDetector'
+import type { WakeDetector } from './wake/wakeDetector'
 import './App.css'
 
-export default function App(props?: { session?: UseJarvisSessionOptions }) {
+export interface AppWakeOptions {
+  /** default: the real Porcupine-backed factory, wake/createWakeDetector */
+  createDetector?: () => Promise<WakeDetector>
+}
+
+export default function App(props?: { session?: UseJarvisSessionOptions; wake?: AppWakeOptions }) {
   const session = useJarvisSession(props?.session)
   const [roomName, setRoomName] = useState('')
+  // R11 / T-12 acceptance 3: explicit opt-in, default OFF. Passive
+  // listening -- and the local (non-LiveKit) mic capture it implies --
+  // never starts unless the user turns it on themselves.
+  const [passiveModeEnabled, setPassiveModeEnabled] = useState(false)
+
+  const createDetector = props?.wake?.createDetector ?? createWakeDetector()
+  const passiveState = usePassiveWakeSession({
+    enabled: passiveModeEnabled,
+    createDetector,
+    endpoint: session,
+    status: session.status,
+    room: roomName.trim() === '' ? null : roomName.trim(),
+  })
 
   const isConnected = session.status === 'connected'
   const isConnecting = session.status === 'connecting'
@@ -52,6 +73,20 @@ export default function App(props?: { session?: UseJarvisSessionOptions }) {
               autoComplete="off"
             />
           </div>
+        )}
+
+        <label className="app__passive-toggle">
+          <input
+            type="checkbox"
+            checked={passiveModeEnabled}
+            onChange={(event) => setPassiveModeEnabled(event.target.checked)}
+          />
+          Passive listening (say "Jarvis")
+        </label>
+        {passiveModeEnabled && (
+          <p className="app__passive-state" data-testid="passive-state">
+            {passiveState === 'passive' ? 'Listening for "Jarvis"…' : null}
+          </p>
         )}
 
         <Controls
