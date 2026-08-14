@@ -1,67 +1,36 @@
 # Latency report: time-to-first-audio
 
-**STATUS: PLACEHOLDER -- NO REAL DATA. This file does not report a measurement.**
+Source: `/tmp/deployed-latency.jsonl`
+Turns analyzed: 55 (minimum required: 50)
 
-## What R1 requires
+## Overall
 
-`docs/SPEC.md` R1 requires **p95 time-to-first-audio <= 800ms, measured over
-at least 50 turns of real, deployed usage** (LiveKit voice pipeline, real TTS
-provider, real model calls).
+| metric | ms |
+| --- | --- |
+| p50 | 974.9 |
+| p95 | 5957.4 |
+| max | 14388.3 |
+| count | 55 |
 
-## Current state
+R1 requires p95 <= 800ms over >= 50 turns.
+R1 status (all turns): FAIL (p95=5957.4ms, n=55)
 
-Zero deployed turns have been recorded. This environment has:
+## By question type
 
-- `flyctl` installed but **not authenticated** -- nothing has been deployed to
-  Fly.io. There is no running `web`/`worker` process pair and no public URL.
-- Placeholder (`changeme`) values for `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`,
-  and `CARTESIA_API_KEY` / `DEEPGRAM_API_KEY`. The worker cannot connect to a
-  real LiveKit room or synthesize real audio with these values, so it cannot
-  produce a single genuine turn, let alone 50.
+R1 pins 800ms for replies that need **no external lookup**. The worker log cannot distinguish those on its own (`tool_ms` is 0.0 even when a tool fires), so the split below comes from the driver's utterance categories.
 
-Because of this, `backend/var/latency.jsonl` does not exist (or, if present
-locally, holds only ad hoc dev/test runs, not deployed-usage data), and
-`scripts/latency_report.py` will correctly refuse to produce a report against
-it -- it exits non-zero below 50 valid turns by design (see T-9 contract and
-the tool's own `--min-turns` guard). **No latency number appears anywhere in
-this document because inventing one would be a fabrication**, and this
-repo's entire R6 thesis is that reported numbers are real measurements, not
-guesses.
+| category | count | p50 (ms) | p95 (ms) | max (ms) | external lookup |
+| --- | --- | --- | --- | --- | --- |
+| capability | 10 | 2794.4 | 11682.1 | 14388.3 | yes |
+| chat | 20 | 821.4 | 1447.9 | 2082.4 | no |
+| github | 9 | 1648.0 | 2988.0 | 3183.1 | yes |
+| memory | 8 | 365.1 | 6693.0 | 7428.5 | yes |
+| weather | 8 | 2662.7 | 4693.2 | 4803.0 | yes |
 
-## Prerequisites before a real report can be generated
+**R1 status (no-lookup turns only): FAIL** (p95=1447.9ms, p50=821.4ms, n=20).
 
-1. A human runs `fly deploy` (or equivalent) to actually stand up the `web`
-   and `worker` process groups on Fly.io -- this is explicitly **not**
-   something an agent may do in this environment (no `fly deploy`, `fly apps
-   create`, `fly auth`, `fly secrets set`).
-2. Real secrets are set on the Fly app (`fly secrets set ...`) for at least:
-   `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `CARTESIA_API_KEY`
-   (or `DEEPGRAM_API_KEY`, per `TTS_PROVIDER`), `ANTHROPIC_API_KEY`,
-   `CONVO_MODEL`, `TOOL_MODEL`. See the secrets comment block in `fly.toml`
-   for the exact list.
-3. At least 50 real conversational turns are run against the deployed worker
-   so it appends 50+ records to its latency JSONL (`var/latency.jsonl` in the
-   deployed container, per `jarvis.pipeline.latency.LatencyLogger`).
-4. That JSONL is retrieved from the deployed instance (e.g. `fly ssh sftp
-   get`, a mounted volume, or shipping it to log storage -- mechanism is out
-   of scope for T-9) to a local path.
+## By model
 
-## The exact command that generates the real report
-
-Once a real `latency.jsonl` with >= 50 turns is available locally:
-
-```bash
-uv run --directory backend python ../scripts/latency_report.py \
-  --input path/to/retrieved/latency.jsonl \
-  --min-turns 50 \
-  --out docs/latency-report.md
-```
-
-(Or, from the repo root, with a suitable `python3` on `PATH`:
-`python3 scripts/latency_report.py --input path/to/retrieved/latency.jsonl --min-turns 50 --out docs/latency-report.md`.)
-
-This will overwrite this file with a real report: overall p50/p95/max
-time-to-first-audio in milliseconds, the turn count, and a breakdown by
-model -- and it will refuse (exit non-zero) if fewer than 50 valid turns are
-found, so this placeholder can only ever be replaced by a report backed by
-real, sufficient data.
+| model | count | p50 (ms) | p95 (ms) | max (ms) |
+| --- | --- | --- | --- | --- |
+| claude-haiku-4-5 | 55 | 974.9 | 5957.4 | 14388.3 |

@@ -128,7 +128,27 @@ def _stats(values: list[float]) -> dict[str, float]:
     }
 
 
-def _render_report(turns: list[_Turn], *, min_turns: int, source: Path) -> str:
+def _load_categories(driver_json: Path, n_turns: int) -> list[str] | None:
+    """Per-turn utterance categories from a scripts/drive_turns.py --json run.
+
+    R1's 800ms bar is conditioned on replies "that need no external lookup",
+    but the worker's JSONL cannot express that: ``tool_ms`` is recorded as 0.0
+    even on turns where a tool fired, so lookup and no-lookup turns are
+    indistinguishable in the log alone. The driver knows which utterance drove
+    each turn, and it drives them strictly sequentially into one room, so index
+    i of its ``turns`` array is index i of the worker log. Returns None if the
+    two do not line up, rather than silently mis-labelling turns.
+    """
+    data = json.loads(driver_json.read_text())
+    driver_turns = data.get("turns", []) if isinstance(data, dict) else data
+    if len(driver_turns) != n_turns:
+        return None
+    return [str(t.get("utterance_file", "unknown")).split("-")[0] for t in driver_turns]
+
+
+def _render_report(
+    turns: list[_Turn], *, min_turns: int, source: Path, categories: list[str] | None = None
+) -> str:
     overall = _stats([t.ttfa_ms for t in turns])
 
     by_model: dict[str, list[_Turn]] = defaultdict(list)
@@ -151,9 +171,44 @@ def _render_report(turns: list[_Turn], *, min_turns: int, source: Path) -> str:
         f"| count | {int(overall['count'])} |",
         "",
         "R1 requires p95 <= 800ms over >= 50 turns.",
-        f"R1 status: {'PASS' if overall['p95'] <= 800 and len(turns) >= 50 else 'FAIL'}"
+        f"R1 status (all turns): {'PASS' if overall['p95'] <= 800 and len(turns) >= 50 else 'FAIL'}"
         f" (p95={overall['p95']:.1f}ms, n={len(turns)})",
-        "",
+        "",]
+
+    if categories:
+        by_cat: dict[str, list[float]] = defaultdict(list)
+        for idx, turn in enumerate(turns):
+            by_cat[categories[idx]].append(turn.ttfa_ms)
+        # "chat" utterances are the ones answerable with no tool call, which is
+        # the population R1's 800ms bar is actually defined over.
+        lines += [
+            "## By question type",
+            "",
+            "R1 pins 800ms for replies that need **no external lookup**. The worker log"
+            " cannot distinguish those on its own (`tool_ms` is 0.0 even when a tool"
+            " fires), so the split below comes from the driver's utterance categories.",
+            "",
+            "| category | count | p50 (ms) | p95 (ms) | max (ms) | external lookup |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for cat in sorted(by_cat):
+            cs = _stats(by_cat[cat])
+            lookup = "no" if cat == "chat" else "yes"
+            lines.append(
+                f"| {cat} | {int(cs['count'])} | {cs['p50']:.1f} | {cs['p95']:.1f} | "
+                f"{cs['max']:.1f} | {lookup} |"
+            )
+        lines.append("")
+        if "chat" in by_cat:
+            cs = _stats(by_cat["chat"])
+            verdict = "PASS" if cs["p95"] <= 800 else "FAIL"
+            lines += [
+                f"**R1 status (no-lookup turns only): {verdict}** "
+                f"(p95={cs['p95']:.1f}ms, p50={cs['p50']:.1f}ms, n={int(cs['count'])}).",
+                "",
+            ]
+
+    lines += [
         "## By model",
         "",
         "| model | count | p50 (ms) | p95 (ms) | max (ms) |",
@@ -189,6 +244,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--driver-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional scripts/drive_turns.py --json output. Used to split turns into "
+            "lookup vs no-lookup, which is the population R1's 800ms bar is defined over."
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -215,7 +279,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    report = _render_report(turns, min_turns=args.min_turns, source=args.input)
+    categories = None
+    if args.driver_json is not None:
+        categories = _load_categories(args.driver_json, len(turns))
+        if categories is None:
+            print(
+                f"warning: {args.driver_json} does not have one entry per worker turn; "
+                "skipping the by-question-type split rather than mislabelling turns.",
+                file=sys.stderr,
+            )
+    report = _render_report(
+        turns, min_turns=args.min_turns, source=args.input, categories=categories
+    )
     print(report)
 
     if args.out is not None:
