@@ -719,7 +719,7 @@
         "The memory suite's skip is loud: a run where the database was unreachable cannot be reported as a clean pass, and the summary states which suites were skipped",
         "docs record which checks require which credentials, so a green local run's meaning is unambiguous"
       ],
-      "verify": "cd backend && uv run pytest tests/memory -q && bash scripts/tests/run_smoke_exit_code_tests.sh",
+      "verify": "(cd backend && uv run pytest tests/memory -q) && bash scripts/tests/run_smoke_exit_code_tests.sh",
       "scope": [
         "scripts/**",
         "backend/tests/memory/**",
