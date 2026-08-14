@@ -6,12 +6,13 @@ against the real pinned 500ms threshold -- no real sleep, ever.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 from cadence_fakes import RecordingPlayer, RecordingPublisher, VirtualClock, make_clips
 
 from jarvis.cadence.fillers import FillerBank
-from jarvis.cadence.gate import FillerDecision, FillerGate, decide
+from jarvis.cadence.gate import FillerGate
 from jarvis.cadence.policy import FILLER_THRESHOLD_MS
 from jarvis.pipeline.events import agent_state_event
 
@@ -38,30 +39,6 @@ def _new_gate(tmp_path, *, publisher=None):
     clock = VirtualClock()
     gate = FillerGate(bank, player, sleep=clock.sleep, publisher=publisher)
     return gate, player, clock
-
-
-# ---- pure decide() ----------------------------------------------------------
-
-
-def test_decide_at_the_exact_threshold_boundary_does_not_play():
-    decision = decide(heavy=True, elapsed_ms=500.0, threshold_ms=FILLER_THRESHOLD_MS)
-    assert decision == FillerDecision(play=False, reason="tool_faster_than_threshold")
-
-
-def test_decide_just_past_the_threshold_boundary_plays():
-    decision = decide(heavy=True, elapsed_ms=500.1, threshold_ms=FILLER_THRESHOLD_MS)
-    assert decision == FillerDecision(play=True, reason="heavy_tool_exceeded_threshold")
-
-
-def test_decide_non_heavy_never_plays_regardless_of_elapsed():
-    decision = decide(heavy=False, elapsed_ms=10_000, threshold_ms=FILLER_THRESHOLD_MS)
-    assert decision == FillerDecision(play=False, reason="tool_not_heavy")
-
-
-def test_decide_uses_the_pinned_default_threshold():
-    # no threshold_ms passed -> defaults to FILLER_THRESHOLD_MS (500)
-    assert decide(heavy=True, elapsed_ms=499.9).play is False
-    assert decide(heavy=True, elapsed_ms=500.1).play is True
 
 
 # ---- FillerGate.guard() ------------------------------------------------------
@@ -156,6 +133,47 @@ async def test_cancelling_guard_itself_does_not_leak_the_timer_task(tmp_path):
     leftover = {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
     assert not leftover, leftover
     assert player.played == []
+
+
+@pytest.mark.asyncio
+async def test_a_raising_filler_player_does_not_corrupt_the_tools_return_value(tmp_path, caplog):
+    """T-17 acceptance #1/#2: pre-fix, guard()'s finally block only
+    suppressed CancelledError from the timer task -- any OTHER exception
+    (a TTS hiccup, a dead audio device, a Cartesia stream error) escaped the
+    `finally`, which replaces whatever the `try` was about to return, so a
+    failed filler turned an already-successful tool result into an error the
+    caller saw instead. This drives that exact direction: the existing tests
+    above only ever use a player that succeeds.
+    """
+    bank = FillerBank(make_clips(3, tmp_path))
+    clock = VirtualClock()
+
+    async def _raising_player(clip):
+        raise _Boom("filler playback blew up")
+
+    gate = FillerGate(bank, _raising_player, sleep=clock.sleep)
+    tool = asyncio.get_running_loop().create_future()
+
+    with caplog.at_level(logging.ERROR):
+        task = asyncio.create_task(gate.guard(tool, heavy=True))
+        await _wait_until(lambda: clock.requested)
+
+        clock.release()  # simulate the threshold elapsing -> _speak_after_delay runs
+        # gate.played is appended immediately before the (raising) play()
+        # call with no await in between, so observing it here guarantees the
+        # raising player has already run (and the timer task is already done
+        # with _Boom stored) by the time we resolve the tool below.
+        await _wait_until(lambda: gate.played)
+
+        tool.set_result("the-real-tool-answer")  # tool succeeds AFTER the filler blew up
+        result = await task
+
+    assert result == "the-real-tool-answer"
+    assert any("filler" in r.message.lower() for r in caplog.records), caplog.records
+
+    await _wait_until(lambda: clock.pending == 0)
+    leftover = {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
+    assert not leftover, leftover
 
 
 @pytest.mark.asyncio

@@ -23,24 +23,28 @@ from __future__ import annotations
 
 import asyncio
 import time
+import types
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from livekit import rtc
 from livekit.agents import AgentSession, io
+from livekit.agents.llm import StopResponse
 from livekit.agents.utils.audio import silence_frame
 from livekit.agents.voice.turn import TurnHandlingOptions
 from mocks import MockLLM, MockSTT, MockTTS
 
-from jarvis.cadence.fillers import FillerClip
+from jarvis.cadence.fillers import FillerBank, FillerClip
 from jarvis.cadence.gate import FillerGate
 from jarvis.cadence.policy import FILLER_START_DEADLINE_MS, FILLER_THRESHOLD_MS
-from jarvis.llm.types import ToolResult
+from jarvis.llm.types import REFUSAL, ToolResult
 from jarvis.pipeline.agent import JarvisAgent
 from jarvis.pipeline.cadence_wiring import load_filler_bank, make_filler_player
 from jarvis.pipeline.latency import LatencyLogger
 from jarvis.pipeline.session_wiring import wire_session_events
+from jarvis.pipeline.tools_wiring import _make_dispatcher
 from jarvis.tools.registry import ToolRegistry, ToolSpec
 
 SAMPLE_RATE = 16000
@@ -357,6 +361,82 @@ async def test_no_gate_still_dispatches_and_speaks_the_grounded_answer(tmp_path)
         assert _assistant_texts() == ["grounded answer"]
     finally:
         await session.aclose()
+
+
+# ---- T-17: a failed filler must not turn a lookup into a REFUSAL -----------
+
+
+class _FakeToolSession:
+    """Minimal ``RunContext.session`` double: just the surface
+    ``tools_wiring._dispatch`` actually touches -- ``.history.items`` (for
+    ``_last_user_utterance``) and ``.say(...)`` (the final spoken answer) --
+    no real AgentSession/audio pipeline needed to drive the dispatcher and
+    prove the guard()/tools_wiring integration in isolation.
+    """
+
+    def __init__(self, *, transcript: str) -> None:
+        self.history = types.SimpleNamespace(
+            items=[types.SimpleNamespace(role="user", text_content=transcript)]
+        )
+        self.say_calls: list[dict] = []
+
+    def say(self, text, *, allow_interruptions=None):
+        self.say_calls.append({"text": text, "allow_interruptions": allow_interruptions})
+
+
+class _FakeRunContext:
+    def __init__(self, session: _FakeToolSession) -> None:
+        self.session = session
+
+
+@pytest.mark.asyncio
+async def test_a_failed_filler_does_not_turn_a_successful_lookup_into_a_refusal():
+    """T-17 acceptance #3: integration test through tools_wiring. Before the
+    guard() fix, a raising filler player's exception replaced the guarded
+    span's return value inside ``_dispatch`` -- the real ``ToolResult`` the
+    handler produced never survived to reach ``synthesize_grounded`` at all.
+    After the fix, that ``ToolResult`` (non-empty ``data``, ``error=None``)
+    reaches the REAL ``synthesize_grounded`` (its ``has_supporting_evidence``
+    structural gate included, not mocked) and the grounded answer is spoken
+    -- not REFUSAL -- even though the filler blew up along the way.
+    """
+    spec = _blocking_spec(name="flaky_filler_tool", heavy=True, delay_s=0.05)
+
+    async def _raising_player(clip: FillerClip) -> None:
+        raise RuntimeError("TTS hiccup")
+
+    bank = FillerBank(
+        [FillerClip(slug="x", text="One sec.", path=Path("unused.wav"), duration_ms=400)]
+    )
+    # Real asyncio.sleep (no VirtualClock here): threshold_ms is well under
+    # the guarded span's real duration (handler delay_s=0.05 alone) so the
+    # timer reliably fires and the raising player reliably runs.
+    gate = FillerGate(bank, _raising_player, threshold_ms=5)
+
+    client = RecordingModelClient(reply="octocat/Hello-World has 42 stars.")
+    dispatch = _make_dispatcher(spec, prefs_getter=lambda: [], model_client=client, gate=gate)
+
+    session = _FakeToolSession(transcript="please use flaky_filler_tool")
+    ctx = _FakeRunContext(session)
+
+    with pytest.raises(StopResponse):
+        await dispatch({}, ctx)
+
+    # sanity: the filler actually fired and failed -- otherwise this test
+    # would pass vacuously without ever exercising the T-17 fix.
+    assert len(gate.played) == 1, "the filler never fired; widen the timing margin"
+
+    assert session.say_calls == [
+        {"text": "octocat/Hello-World has 42 stars.", "allow_interruptions": True}
+    ]
+    assert session.say_calls[0]["text"] != REFUSAL
+
+    # The REAL synthesize_grounded's structural no-evidence gate must have
+    # seen the handler's real ToolResult (data={"ok": True}, error=None) --
+    # proven by it actually reaching the model with that data in the prompt,
+    # not refusing before ever calling it.
+    assert client.calls, "synthesize_grounded never reached the model -- refused instead"
+    assert '"ok": true' in client.calls[0]["user"].lower()
 
 
 # ---- jarvis.pipeline.cadence_wiring, directly -------------------------------

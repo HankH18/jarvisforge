@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .fillers import FillerBank, FillerClip, load_manifest
-from .gate import FillerDecision, FillerGate, decide
+from .gate import FillerGate
 from .interrupt import TurnController
 from .policy import (
     FILLER_START_DEADLINE_MS,
@@ -19,10 +19,8 @@ __all__ = [
     "STOP_PHRASES",
     "FillerBank",
     "FillerClip",
-    "FillerDecision",
     "FillerGate",
     "TurnController",
-    "decide",
     "is_stop_phrase",
     "load_manifest",
     "normalize_utterance",
