@@ -10,6 +10,8 @@ provider response synthesized in-memory instead of over the wire.
 
 from __future__ import annotations
 
+import json
+
 from livekit import rtc
 from livekit.agents import llm, stt, tts, utils
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions
@@ -105,6 +107,27 @@ class MockTTS(tts.TTS):
 
 class _MockLLMStream(llm.LLMStream):
     async def _run(self) -> None:
+        if self._llm.tool_call is not None:
+            name, args = self._llm.tool_call
+            # Real providers (confirmed against livekit-plugins-anthropic
+            # 1.6.10) reassemble a tool call's streamed input_json_delta
+            # fragments before yielding, so it surfaces as one complete
+            # ChatChunk -- no cross-chunk accumulation needed here either.
+            self._event_ch.send_nowait(
+                llm.ChatChunk(
+                    id=utils.shortuuid(),
+                    delta=llm.ChoiceDelta(
+                        role="assistant",
+                        tool_calls=[
+                            llm.FunctionToolCall(
+                                name=name, arguments=json.dumps(args), call_id="call-1"
+                            )
+                        ],
+                    ),
+                )
+            )
+            return
+
         self._event_ch.send_nowait(
             llm.ChatChunk(
                 id=utils.shortuuid(),
@@ -114,11 +137,19 @@ class _MockLLMStream(llm.LLMStream):
 
 
 class MockLLM(llm.LLM):
-    """Single-shot LLM double: always replies with a fixed canned string."""
+    """Single-shot LLM double: replies with a fixed canned string, or --
+    when ``tool_call`` is set -- emits a single tool-call chunk instead
+    (that request never runs; the fake is single-shot per turn)."""
 
-    def __init__(self, *, reply: str = "Hi there, how can I help?") -> None:
+    def __init__(
+        self,
+        *,
+        reply: str = "Hi there, how can I help?",
+        tool_call: tuple[str, dict] | None = None,
+    ) -> None:
         super().__init__()
         self.reply = reply
+        self.tool_call = tool_call
 
     @property
     def model(self) -> str:
