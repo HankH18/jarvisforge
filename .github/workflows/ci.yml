@@ -22,3 +22,6 @@ jobs:
 
       - name: Scope guard hook tests
         run: bash .claude/hooks/tests/run_scope_guard_tests.sh
+
+      - name: Claim ownership hook tests
+        run: bash .claude/hooks/tests/run_claim_tests.sh

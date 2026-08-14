@@ -12,8 +12,9 @@ authoritative). Your job is execution, not planning.
    silently rewrite tickets.
 2. **One ticket at a time.** Pick a ready Task (pending, unowned, no
    open blockers) via TaskList. Claim it: TaskUpdate owner + status
-   in_progress, and write its ticket ID (e.g. T-4) as the only line
-   of `.claude/active-ticket`.
+   in_progress, and run `bash .claude/hooks/claim_ticket.sh <ticket-id>`
+   to record the claim (see "Claim ownership" below for the format and
+   why it's per-session).
 3. **Load only what the ticket needs**: its contract (Task
    description) and the files in its scope. Do not read the whole
    graph or other tickets' contracts.
@@ -83,6 +84,95 @@ mechanism used. If a ticket's work seems to require a Bash-mediated
 write outside its declared scope, that is the same plan defect as an
 out-of-scope Edit — stop and tell the human, don't route around the
 hook.
+
+## Claim ownership (T-21)
+
+A claim is **per-session**, not repo-global. The canonical record is
+one small file per session:
+
+```
+.claude/claims/<session-id>          (content: just the ticket id, e.g. "T-21")
+```
+
+`<session-id>` is Claude Code's stable per-session identifier, present
+as `session_id` on every hook's stdin JSON and available inside that
+same session's own Bash calls as `$CLAUDE_CODE_SESSION_ID` (confirmed
+identical to the hook-JSON value for the same session) — which is how
+a session can write its own claim without reading its own hook
+traffic. Because the *filename* is the owner, no other session's
+write, and no deletion or truncation of any *other* file, can ever
+affect a session's own claim record. This is what makes the scope
+boundary and the stop block survive "another actor deletes something
+while I still hold work" — that scenario, by construction, cannot
+touch this file.
+
+`.claude/active-ticket` still exists alongside it, in the same
+two-line format as before (`<ticket-id>\n<owner-session-id>\n`), as a
+human-/git-visible "what's currently claimed" marker and a
+read-compatibility bridge — but it is **not** required for
+enforcement any more; `.claude/claims/<session-id>` is authoritative.
+The guards check the per-session file first and only consult
+`.claude/active-ticket` if that lookup comes up empty, and even then
+only for the session whose id matches the file's recorded owner
+(line 2).
+
+**To claim a ticket**, run:
+
+```bash
+bash .claude/hooks/claim_ticket.sh T-21
+```
+
+(substituting the real ticket id). This writes both
+`.claude/claims/$CLAUDE_CODE_SESSION_ID` and refreshes
+`.claude/active-ticket` for you. There's no other form to write by
+hand — the per-session path needs `$CLAUDE_CODE_SESSION_ID`, which the
+script already reads, so just run it.
+
+**Ownership rules the guards enforce** (`scope_guard.sh`,
+`stop_guard.sh`), for a session with a real `session_id` on its hook
+calls (i.e. every real Claude Code session):
+
+- A session that owns no claim — no per-session file, and no
+  `.claude/active-ticket` entry recorded under its id — is **never**
+  scope-constrained and is **never** blocked from stopping. This is
+  unconditional: there is no "ownerless claim constrains everyone"
+  fallback any more. A single shared file couldn't satisfy that
+  alongside "a missing record doesn't strip a real owner's
+  protection" at the same time; moving the record to be per-session is
+  what removes the conflict, not a compromise between the two.
+- A session that owns a claim is constrained to exactly that ticket's
+  declared scope, and blocked from stopping until its evidence
+  `.pass` receipt exists — regardless of what happens to any other
+  session's record or to `.claude/active-ticket`.
+- An empty/truncated file at either location (per-session or legacy)
+  is treated as no claim from that source, never as a claim for a
+  blank ticket id — a missing record and a truncated one behave the
+  same way.
+- An old-format `.claude/active-ticket` with **no** owner line (a bare
+  one-line file) binds no identified session. It is not applied to
+  "everyone" — see the compat note below for the one narrow exception.
+- If `docs/tickets.json` is missing or not valid JSON, `scope_guard.sh`
+  fails closed (denies) for everything *except* writes to
+  `docs/tickets.json` itself, so you can repair it. It does not fail
+  open — an unreadable scope source is not treated as "anything goes."
+
+**Compat note**: if a hook call somehow carries no `session_id` at
+all (every real Claude Code hook event does; this only happens from a
+hand-crafted caller, e.g. `run_scope_guard_tests.sh`'s frozen T-20
+suite, which predates per-session identity and never sends one),
+`scope_guard.sh` cannot do per-session matching and falls back to
+treating `.claude/active-ticket`'s line 1 as a plain global ticket id
+— exactly its pre-ownership behaviour. This path is unreachable
+through the real Claude Code harness; it exists solely so that frozen
+suite stays meaningful.
+
+**`.claude/claims/` is per-session, disposable, machine-local state**
+— it should not be committed. Add `.claude/claims/` to `.gitignore`
+(this file is outside this ticket's scope, so that line isn't added
+here — see the ticket report for the exact text).
+
+Run `bash .claude/hooks/tests/run_claim_tests.sh` to exercise all of
+the above against the real hooks.
 
 ## Session start
 
