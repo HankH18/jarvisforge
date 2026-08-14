@@ -210,15 +210,45 @@ fi
 # restart-loop T-9 hit; a same-second "exit" event does not. A machine only
 # counts as serving if it is state=="started" AND has recorded no "exit"
 # event within the last $SMOKE_WORKER_STABLE_WINDOW_SECONDS seconds, AND any
-# Fly-configured checks it does have all report "passing". NOTE: this event-
-# field assumption is NOT verified against a live authenticated flyctl in
-# this environment (flyctl is installed but unauthenticated here) -- see
-# docs/ops-smoke-test.md for that caveat and how to re-verify it once
-# credentials exist. What IS verified against the real installed flyctl
-# binary is the *command shape* itself (`flyctl machine list -a <app> -j`
-# argument-parses and reaches the network call; `flyctl machine status
-# --json` does NOT exist in this flyctl version, which is why machine list
-# is used instead of a per-machine status call).
+# Fly-configured checks it does have all report "passing".
+#
+# VERIFIED 2026-08-14 against a live authenticated flyctl (`flyctl machine
+# list -a jarvisforge -j`, flyctl 0.4.45) on the real jarvisforge app -- this
+# was previously only verified as a command shape (T-23), not a field shape.
+# Findings, all consistent with what this script already assumes (no parsing
+# bug found; nothing below required a code change):
+#   - Each machine is a flat object with top-level "id", "state" (plain
+#     string, e.g. "started"/"stopped" -- no capitalized "State" variant seen),
+#     "config", "events", and (only when the process group has a configured
+#     Fly service check) "checks".
+#   - There is no top-level "process_group"/"ProcessGroup" field on the real
+#     payload -- group_of() below only ever resolves via its third fallback,
+#     config.metadata.fly_process_group (e.g. "worker"/"web"), which IS
+#     present and correct on every machine observed. The first two fallbacks
+#     are dead code against this flyctl/API version but are harmless to keep.
+#   - "checks" is `null` (not `[]`) for machines with no Fly-configured
+#     check -- true for every worker machine, since only the web group has
+#     an http_service check. `checks or []` already handles this. Where
+#     present (web machines), each entry is {"name", "status": "passing",
+#     "output", "updated_at"}, matching c.get("status") usage exactly.
+#   - "events" entries are {"type", "status", "source", "timestamp"} (plus
+#     "request" on some), matching e.get("type")/e.get("timestamp") exactly.
+#     "timestamp" is Unix millis (13-digit values, e.g. 1786684352096),
+#     confirming the `ts > 1e12` -> divide-by-1000 heuristic is correct.
+#     Only "start" and "launch" event types were observed live (these
+#     machines have not crashed), so the "exit" type itself could not be
+#     observed on a live crash; it is independently confirmed as a real,
+#     canonical Fly Machines event type (alongside "start"/"launch") in
+#     Fly's own official Go client, superfly/fly-go's MachineEvent handling
+#     (MostRecentStartTimeAfterLaunch switches on exactly "start"/"launch"/
+#     "exit"). Net: the event schema this script parses is verified for
+#     real; only the specific "does an OOM crash literally emit type=='exit'"
+#     claim rests on Fly's own client code rather than a live observed crash.
+# What IS ALSO verified against the real installed flyctl binary is the
+# *command shape* itself (`flyctl machine list -a <app> -j` argument-parses
+# and reaches the network call; `flyctl machine status --json` does NOT
+# exist in this flyctl version, which is why machine list is used instead of
+# a per-machine status call).
 #
 # Per T-23 acceptance #1: every branch that cannot positively establish
 # SERVING calls fail(), never a non-failing skip. A fresh deploy will
