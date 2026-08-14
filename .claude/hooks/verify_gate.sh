@@ -5,11 +5,61 @@ INPUT=$(cat)
 SUBJECT=$(echo "$INPUT" | jq -r '.task.subject // .subject // empty')
 TID=$(echo "$SUBJECT" | grep -oE '^T-[0-9]+' || true)
 [ -z "$TID" ] && exit 0   # not a ticket task; allow
-VERIFY=$(jq -r --arg id "$TID" '.tickets[] | select(.id==$id) | .verify' \
-  "${CLAUDE_PROJECT_DIR}/docs/tickets.json")
-[ -z "$VERIFY" ] || [ "$VERIFY" = "null" ] && exit 0
+
+# T-24: distinguish "this ticket legitimately has no verify command" (may
+# allow) from "I could not read docs/tickets.json at all" (must FAIL
+# LOUDLY, never silently allow). Before this guard, an unset or bogus
+# CLAUDE_PROJECT_DIR made the jq call below fail inside the $(...)
+# substitution; under `set -u` with no `set -e`, that failure never
+# propagated, VERIFY ended up empty, and `[ -z "$VERIFY" ] && exit 0`
+# silently let the ticket close with NEITHER its own verify NOR the
+# regression suite ever having run -- defeating exactly the guarantee
+# this ticket exists to add. Confirmed pre-existing (reproduces
+# identically on the ticket-start baseline), not introduced by the
+# regression-suite change above; fixed here because this is the one file
+# that gates every ticket's close.
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+  echo "verify_gate.sh: CLAUDE_PROJECT_DIR is unset -- cannot locate docs/tickets.json to verify ${TID}. Ticket cannot be closed." >&2
+  exit 2
+fi
+TICKETS_JSON="${CLAUDE_PROJECT_DIR}/docs/tickets.json"
+if [ ! -f "$TICKETS_JSON" ]; then
+  echo "verify_gate.sh: ${TICKETS_JSON} does not exist -- CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR}' looks wrong. Ticket cannot be closed." >&2
+  exit 2
+fi
+if ! jq -e . "$TICKETS_JSON" >/dev/null 2>&1; then
+  echo "verify_gate.sh: ${TICKETS_JSON} is not valid JSON -- cannot verify ${TID}. Ticket cannot be closed." >&2
+  exit 2
+fi
+VERIFY=$(jq -r --arg id "$TID" '.tickets[] | select(.id==$id) | .verify' "$TICKETS_JSON")
+[ -z "$VERIFY" ] || [ "$VERIFY" = "null" ] && exit 0   # no verify declared for this ticket; legitimate allow
 cd "$CLAUDE_PROJECT_DIR"
 if bash -c "$VERIFY"; then
+  # T-24: a ticket's own $VERIFY is scoped to its own slice of the repo by
+  # design from T-1 onward (see docs/TASKS.md "Verify scope, and what
+  # covers the gap") -- passing it proves nothing about a sibling scope
+  # the change may have broken. Every ticket boundary therefore ALSO runs
+  # the full backend+frontend regression suite below, regardless of what
+  # $VERIFY itself covers. Measured on this repo (354 backend tests + ruff
+  # + 68 frontend tests): ~15s wall-clock total -- cheap enough to run at
+  # every completion. This is not a SPEC C7 concern: C7 caps CI (GitHub
+  # Actions) cost, and this never runs in CI, only in this local hook.
+  # Guarded on backend/ and frontend/ actually existing so it is a no-op
+  # inside run_evidence_tests.sh's fabricated sandbox repo (docs/tickets.json
+  # + throwaway scope dirs only, no backend/frontend) -- that suite proves
+  # the receipt/staleness contract, not this regression gate, and must not
+  # start shelling out to uv/npm against directories that don't exist there.
+  if [ -d "${CLAUDE_PROJECT_DIR}/backend" ] && [ -d "${CLAUDE_PROJECT_DIR}/frontend" ]; then
+    REGRESSION_OK=1
+    ( cd "${CLAUDE_PROJECT_DIR}/backend" && uv run pytest -q && uv run ruff check src ) || REGRESSION_OK=0
+    if [ "$REGRESSION_OK" -eq 1 ]; then
+      ( cd "${CLAUDE_PROJECT_DIR}/frontend" && npm run -s test -- --run ) || REGRESSION_OK=0
+    fi
+    if [ "$REGRESSION_OK" -ne 1 ]; then
+      echo "regression suite failed after ${TID}'s own verify passed: ${TID}'s change broke a test outside its declared scope. Ticket cannot be closed -- revert to the ticket-start commit and retry." >&2
+      exit 2
+    fi
+  fi
   mkdir -p .claude/evidence
   SHA=$(git rev-parse HEAD 2>/dev/null || echo unknown)
   TS=$(date -u +%s)

@@ -174,6 +174,37 @@ here — see the ticket report for the exact text).
 Run `bash .claude/hooks/tests/run_claim_tests.sh` to exercise all of
 the above against the real hooks.
 
+## CI reachability (T-24)
+
+`.github/workflows/ci.yml` triggers on `pull_request` only. **This repo
+has zero git remotes and one branch (`master`)** — confirmed with `git
+remote -v` / `git branch -a` — and the submission target for this
+project is a self-hosted GitLab at `labs.gauntletai.com`, not GitHub
+(see the global Gauntlet AI instructions), so no GitHub pull request
+is ever going to open against this repo. **That workflow has never
+executed once and, under this repo's actual submission path, never
+will.** Stating otherwise — e.g. treating `ci.yml` as the thing
+catching regressions — would be false confidence.
+
+**`ci.yml` is decorative.** It is left in place because it documents
+the intended check shape and would activate if this repo were ever
+mirrored to a GitHub remote with PRs, but it is not this project's
+regression gate. **The actual gate is local**: the `TaskCompleted`
+hook, `.claude/hooks/verify_gate.sh`, runs at every ticket boundary —
+not just on a push nobody makes — and does two things before a ticket
+can close: (1) the ticket's own declared `verify` command, and (2), if
+that passes, the full backend+frontend regression suite:
+
+```bash
+cd backend && uv run pytest -q && uv run ruff check src && cd ../frontend && npm run -s test -- --run
+```
+
+(measured ~15s wall-clock on this repo — see docs/TASKS.md "Verify
+scope, and what covers the gap" for the full rationale and timing).
+Run that same command by hand at any time to reproduce exactly what
+the hook checked. This local, always-on hook — not `ci.yml` — is what
+"CI" means for this project in practice.
+
 ## Session start
 
 If TaskList is empty for this project, follow docs/INGEST.md first.

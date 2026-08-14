@@ -65,6 +65,99 @@ verify, scope, depends_on, non_goals). Summary:
 | T-12 | Bonus: wake word passive mode | T-9 | no |
 | T-13 | Submission sent (video/docs/zip) | T-9 | no |
 
+## Verify scope, and what covers the gap (T-24)
+
+Every ticket's `verify` in `docs/tickets.json` is scoped to its own
+slice of the repo by design — that's what keeps a ticket boundary
+fast. Only two verify commands run the whole backend+frontend suite:
+**T-0** (bootstrap) and **T-24** (this remediation). Every other
+ticket's verify is deliberately narrow:
+
+The table below is checked directly against `docs/tickets.json`'s
+`verify` strings (26 entries, every ticket T-1..T-27 except T-24
+itself) — not a paraphrase, so a bucket label can't silently drift
+from what the command actually runs:
+
+| ID | verify (from tickets.json) | Class |
+|----|------|-------|
+| T-1 | `pytest tests/pipeline -q` + ruff | backend, 1 dir |
+| T-2 | `pytest tests/grounding -q` + ruff | backend, 1 dir |
+| T-3 | `pytest tests/tools/test_weather.py -q` | backend, 1 **file** |
+| T-4 | `pytest tests/tools/test_github.py -q` | backend, 1 **file** |
+| T-5 | `pytest tests/memory -q` | backend, 1 dir |
+| T-6 | `pytest tests/cadence -q` | backend, 1 dir |
+| T-7 | `python -m evals.run --golden ... --require-approved` | standalone module, no pytest/vitest |
+| T-8 | `npm run build && npm run test -- --run` | frontend only |
+| T-9 | `bash scripts/smoke_deploy.sh` | standalone script, no pytest/vitest |
+| T-10 | `pytest tests/multiuser -q` **+** `bash scripts/load_smoke.sh 10` | backend, 1 dir + non-pytest script companion |
+| T-11 | `pytest tests/agent_pr -q` | backend, 1 dir |
+| T-12 | `npm run test -- --run` | frontend only |
+| T-13 | `bash scripts/verify_submission.sh` | standalone script, no pytest/vitest |
+| T-14 | `pytest tests/pipeline -q` + ruff | backend, 1 dir |
+| T-15 | `pytest tests/pipeline tests/cadence -q` + ruff | backend, **2 dirs** |
+| T-16 | `pytest tests/pipeline -q` + ruff | backend, 1 dir |
+| T-17 | `pytest tests/cadence tests/pipeline -q` + ruff | backend, **2 dirs** |
+| T-18 | `pytest tests/grounding -q` + ruff | backend, 1 dir |
+| T-19 | `pytest tests/grounding -q` **+** `python -m evals.run ... --client echo \|\| true` | backend, 1 dir + evals companion whose own failure is swallowed by `\|\| true` (only the pytest half can fail this verify) |
+| T-20 | `bash .claude/hooks/tests/run_scope_guard_tests.sh` | hook test suite (bash), no pytest/vitest |
+| T-21 | `bash .claude/hooks/tests/run_claim_tests.sh` | hook test suite (bash), no pytest/vitest |
+| T-22 | `bash .claude/hooks/tests/run_evidence_tests.sh` | hook test suite (bash), no pytest/vitest |
+| T-23 | `pytest tests/memory -q` **+** `bash scripts/tests/run_smoke_exit_code_tests.sh` | backend, 1 dir + non-pytest script companion |
+| T-25 | `pytest tests/grounding -q` | backend, 1 dir |
+| T-26 | `pytest tests/cadence -q` + ruff | backend, 1 dir |
+| T-27 | `npm run build && npm run test -- --run` | frontend only |
+
+None of these — including the "+ script companion" and "standalone
+script" rows — run the full backend suite, the full frontend suite,
+or both; every one of them can go green while a sibling test
+elsewhere in the repo is broken. This is intentional, not an
+oversight: a ticket verifying `tests/tools/test_weather.py` in under
+a second is what makes per-ticket iteration cheap. T-24 closes the gap
+that narrowness leaves, identically for all 26 rows above regardless
+of class, in exactly one place:
+
+**`.claude/hooks/verify_gate.sh`** (the `TaskCompleted` hook that
+gates every ticket close) now runs a *second* check after a ticket's
+own `$VERIFY` passes: the full regression suite —
+
+```bash
+cd backend && uv run pytest -q && uv run ruff check src && cd ../frontend && npm run -s test -- --run
+```
+
+If the ticket's own narrow verify passes but this fails, the hook
+blocks completion (exit 2) — the ticket broke something outside its
+declared scope and cannot close until that's fixed. This applies to
+**every** ticket, regardless of what its own `verify` covers,
+including the standalone-script and hook-suite tickets above.
+
+**Measured cost** (this repo, 2026-08-14): backend `pytest -q` — 354
+tests, ~12s; `ruff check src` — ~0s; frontend `npm run test -- --run`
+— 68 tests across 10 files, ~2s. **Total ~15s wall-clock**, run once
+per ticket completion. This is cheap enough to run at every boundary
+and is unrelated to SPEC C7: C7 caps GitHub Actions (CI) cost, and
+this check runs only in the local `TaskCompleted` hook, never in CI —
+see CLAUDE.md §"CI reachability" for why `.github/workflows/ci.yml`
+itself is decorative for this repo's actual submission path.
+
+The regression check is guarded on `backend/` and `frontend/`
+actually existing under `$CLAUDE_PROJECT_DIR`, so it is a deliberate
+no-op inside `run_evidence_tests.sh`'s fabricated sandbox repo (which
+has neither directory) — that suite exercises the receipt/staleness
+contract, not this regression gate, on a throwaway repo with no real
+code to regress.
+
+**Fails loudly, not open, on a bad environment.** Before a ticket's
+own `verify` is even looked up, `verify_gate.sh` checks that
+`CLAUDE_PROJECT_DIR` is set, that `$CLAUDE_PROJECT_DIR/docs/tickets.json`
+exists, and that it's valid JSON — and blocks (exit 2, with a message
+naming the actual problem) if any of those fail, rather than letting
+`$VERIFY` end up empty and silently allowing the close. This closes a
+pre-existing hole where an unset or bogus `CLAUDE_PROJECT_DIR` made
+the ticket-lookup `jq` call fail inside a `$(...)` substitution with
+no `set -e` to propagate it — skipping both the ticket's own verify
+and the regression suite above with no error at all. A ticket that
+genuinely has no `verify` declared for its id still allows, unchanged.
+
 ## Priority batch — remediation (T-17–T-27)
 
 Raised from defects observed while the T-0–T-16 build ran, each verified

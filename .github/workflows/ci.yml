@@ -1,6 +1,14 @@
 name: CI
 
 # SPEC C7: keep CI light — one job, pull_request only, no matrix, no e2e.
+#
+# T-24: this workflow is DECORATIVE for this project. This repo has zero
+# git remotes and one branch (submission target is a self-hosted GitLab at
+# labs.gauntletai.com, not GitHub — see the global Gauntlet AI setup), so
+# no `pull_request` ever opens here and this workflow has never executed.
+# The actual regression gate is local: .claude/hooks/verify_gate.sh, run
+# by the TaskCompleted hook at every ticket boundary. See CLAUDE.md §"CI
+# reachability" and docs/TASKS.md §"Verify scope, and what covers the gap".
 on:
   pull_request:
 
