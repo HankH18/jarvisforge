@@ -165,7 +165,21 @@ async def _run_cartesia(
             "for an offline stand-in build."
         )
 
-    from jarvis.pipeline.providers import build_tts  # lazy: keeps macos-say LiveKit-free
+    from livekit.agents.utils import http_context  # lazy: keeps macos-say LiveKit-free
+
+    # LiveKit TTS plugins borrow an aiohttp session from the agent job context.
+    # This script is not a job, so without opening one explicitly every
+    # synthesize() dies with "Attempted to use an http session outside of a job
+    # context". Opening it here is what makes the real Cartesia path runnable
+    # from a plain CLI.
+    async with http_context.open():
+        return await _run_cartesia_synthesis(phrases, out_dir, voice, force)
+
+
+async def _run_cartesia_synthesis(
+    phrases: tuple[tuple[str, str], ...], out_dir: Path, voice: str | None, force: bool
+) -> tuple[str, list[_ClipResult]]:
+    from jarvis.pipeline.providers import build_tts
 
     tts = build_tts()
     voice_label = voice or "default"

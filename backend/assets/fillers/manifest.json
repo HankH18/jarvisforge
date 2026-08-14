@@ -1,52 +1,52 @@
 {
   "schema_version": 1,
-  "engine": "macos-say",
-  "voice": "Samantha",
+  "engine": "cartesia",
+  "voice": "default",
   "sample_rate": 24000,
   "channels": 1,
-  "generated_at": "2026-08-13T14:21:08Z",
+  "generated_at": "2026-08-14T03:17:49Z",
   "clips": [
     {
       "slug": "one-sec",
       "text": "One sec.",
       "file": "one-sec.wav",
-      "duration_ms": 722,
-      "sha256": "e0abac3894b8ea44383696c42f4a70fc61011ab90dcf8b04c9c7b0bd743f9f73"
+      "duration_ms": 939,
+      "sha256": "70f9cbe5d8a0ca6a1d2a0c0eeab60d0c3534e10d1666fdca7f1adccd91325a75"
     },
     {
       "slug": "let-me-check",
       "text": "Let me check.",
       "file": "let-me-check.wav",
-      "duration_ms": 817,
-      "sha256": "ce30d9dd773856df4291c97f910c0605afa974721af77b3b66eec3e3f1a58fce"
+      "duration_ms": 1078,
+      "sha256": "9c4b87b8f697ac1727e5e5d7d20a3d370fdaf372896a51d7c6d6b032636bca9f"
     },
     {
       "slug": "give-me-a-mo",
       "text": "Give me a moment.",
       "file": "give-me-a-mo.wav",
-      "duration_ms": 863,
-      "sha256": "084d8c647f453cd872756ab45a3d9d92235e9dd07001f979ddb70f3d7e4ceae8"
+      "duration_ms": 1217,
+      "sha256": "4b524f6b59e611c205e7bb220b83c8a88b8c27c51f3cf996e4fea87f449474ff"
     },
     {
       "slug": "looking-it-up",
       "text": "Looking that up.",
       "file": "looking-it-up.wav",
-      "duration_ms": 782,
-      "sha256": "018df588c07336df1bc5f557c0a9c9aeca55661c9738b79a3a0c42f3ba4fce80"
+      "duration_ms": 1032,
+      "sha256": "2a2c5cd12484e00865d8f9b5b2e9287597fd96589e5ff5a1284875a329e7fa17"
     },
     {
       "slug": "on-it",
       "text": "On it.",
       "file": "on-it.wav",
-      "duration_ms": 389,
-      "sha256": "6bc4a8a781334b7f1d955b9d5353024605a79de888460962904543f060d561ae"
+      "duration_ms": 660,
+      "sha256": "46ed653602007d916620718848cb1b33b6f0e328c263aed271541561d5a157ad"
     },
     {
       "slug": "checking-now",
       "text": "Checking on that now.",
       "file": "checking-now.wav",
-      "duration_ms": 1124,
-      "sha256": "e9493c7de319a7340de95f462dbf39c06bde716d3634954e75d3ed6cee4738eb"
+      "duration_ms": 1171,
+      "sha256": "f2096fb3d15ae96a687f1c0cbdf93663324ceaa3b9251b4247b9c597124f6efd"
     }
   ]
 }
