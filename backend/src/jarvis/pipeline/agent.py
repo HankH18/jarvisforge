@@ -17,6 +17,7 @@ from collections.abc import Callable
 
 from livekit.agents import Agent
 
+from jarvis.cadence.gate import FillerGate
 from jarvis.llm.synthesis import ModelClient
 from jarvis.tools.registry import ToolRegistry
 
@@ -39,8 +40,11 @@ class JarvisAgent(Agent):
         registry: ToolRegistry | None = None,
         prefs_getter: Callable[[], list[str]] | None = None,
         model_client: ModelClient | None = None,
+        filler_gate: FillerGate | None = None,
     ) -> None:
         registry = registry if registry is not None else ToolRegistry()
         prefs_getter = prefs_getter if prefs_getter is not None else (lambda: [])
-        tools = livekit_tools(registry, prefs_getter=prefs_getter, model_client=model_client)
+        tools = livekit_tools(
+            registry, prefs_getter=prefs_getter, model_client=model_client, gate=filler_gate
+        )
         super().__init__(instructions=INSTRUCTIONS, tools=tools)

@@ -123,11 +123,16 @@ async def test_entrypoint_wires_the_pinned_event_contract_onto_the_session(ctx):
     await worker.entrypoint(ctx)
 
     session = FakeAgentSession.instances[0]
-    # real session_wiring.wire_session_events (not mocked) registered these
+    # real session_wiring.wire_session_events (not mocked) registered these.
+    # "user_state_changed" is T-15: entrypoint() now passes a real
+    # TurnController, which wire_session_events only subscribes to
+    # user_state_changed for when a controller is given (see
+    # session_wiring.py's docstring for why -- barge-in bookkeeping).
     assert set(session.on_calls) == {
         "agent_state_changed",
         "user_input_transcribed",
         "conversation_item_added",
+        "user_state_changed",
     }
 
 
@@ -136,10 +141,10 @@ async def test_entrypoint_wires_the_production_publisher_and_latency_logger(monk
     captured = {}
     real_wire = worker.wire_session_events
 
-    def spy_wire(session, publisher, latency):
+    def spy_wire(session, publisher, latency, **kwargs):
         captured["publisher"] = publisher
         captured["latency"] = latency
-        return real_wire(session, publisher, latency)
+        return real_wire(session, publisher, latency, **kwargs)
 
     monkeypatch.setattr(worker, "wire_session_events", spy_wire)
 

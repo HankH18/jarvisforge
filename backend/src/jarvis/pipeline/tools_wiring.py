@@ -59,6 +59,22 @@ pipeline layer choosing, per turn, which of the two passes' output becomes
 the spoken reply -- Jarvis's instructions when no tool fires, the grounded
 synthesis output when one does.
 
+**T-15 addition -- the tool call no longer blocks the event loop, and a slow
+`heavy` tool now gets a spoken acknowledgment:** ``spec.handler`` is plain
+sync (``ToolHandler = Callable[..., ToolResult]``, ``tools/registry.py``) and
+the real handlers (e.g. ``get_weather``'s ``httpx.Client``) are blocking. Each
+dispatcher below now runs the handler via ``asyncio.to_thread`` instead of
+calling it directly inline -- a direct call inside this ``async def`` would
+block the *entire* event loop for the call's full duration (1.6-14.4s
+measured on deployment), starving everything else, including the real T-6
+``FillerGate``'s own timer task. ``asyncio.to_thread`` frees the loop so
+that timer (armed only for ``spec.heavy`` tools, per the pinned
+``ToolSpec.heavy``/``$TOOL_MODEL`` contract in docs/DESIGN.md §Interfaces)
+can actually fire and speak one pre-recorded filler clip if the call outlives
+``FILLER_THRESHOLD_MS`` -- see ``jarvis.cadence.gate.FillerGate.guard`` (T-6,
+reused unmodified) and ``jarvis.pipeline.cadence_wiring`` (the SDK-facing
+adapter that plays a clip through ``session.say()``).
+
 **Known limitation, stated plainly:** if the CONVO_MODEL fires more than one
 tool in the same turn (parallel tool calls), each fired tool's dispatcher
 independently calls ``session.say()`` -- there is no cross-call
@@ -70,6 +86,7 @@ fixing the multi-tool case would mean buffering across concurrent
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -78,6 +95,7 @@ from typing import Any
 from livekit.agents import RunContext
 from livekit.agents.llm import RawFunctionTool, StopResponse, function_tool
 
+from jarvis.cadence.gate import FillerGate
 from jarvis.llm.routing import route_model
 from jarvis.llm.synthesis import ModelClient, synthesize_grounded
 from jarvis.llm.types import REFUSAL, ToolResult
@@ -236,10 +254,13 @@ def _make_dispatcher(
     *,
     prefs_getter: Callable[[], list[str]],
     model_client: ModelClient | None,
+    gate: FillerGate | None = None,
 ) -> Callable[[dict[str, Any], RunContext], Any]:
     """Builds the raw-function-tool callable for one ``ToolSpec``. See the
     module docstring for why this speaks the answer directly and raises
-    ``StopResponse`` instead of returning text for the LLM to re-narrate.
+    ``StopResponse`` instead of returning text for the LLM to re-narrate,
+    and for why the handler now runs via ``asyncio.to_thread`` under an
+    optional ``FillerGate``.
 
     ``model_client`` is the same injection seam ``synthesize_grounded``
     already defines (``llm/synthesis.py``'s ``ModelClient`` protocol) --
@@ -248,13 +269,20 @@ def _make_dispatcher(
     tools/weather and grounding test suites do. Production callers
     (``worker.py``) never pass it, so this degrades to the real
     ``AnthropicModelClient`` unchanged.
+
+    ``gate`` is the real T-6 ``FillerGate`` (one per session, built by
+    ``jarvis.pipeline.cadence_wiring.build_filler_gate``) or ``None`` when
+    the filler assets were unavailable at session start -- ``None`` degrades
+    to running the tool call with no filler-eligibility at all, never a
+    crash (see that module's docstring).
     """
 
     async def _dispatch(raw_arguments: dict[str, Any], ctx: RunContext) -> None:
         question = _last_user_utterance(ctx.session.history) or f"({spec.name} request)"
 
         try:
-            result = spec.handler(**raw_arguments)
+            call = asyncio.to_thread(spec.handler, **raw_arguments)
+            result = await (gate.guard(call, heavy=spec.heavy) if gate is not None else call)
         except Exception as exc:  # a broken handler must not crash the voice loop
             logger.exception("tool handler %s raised", spec.name)
             result = ToolResult(
@@ -282,13 +310,19 @@ def livekit_tools(
     *,
     prefs_getter: Callable[[], list[str]],
     model_client: ModelClient | None = None,
+    gate: FillerGate | None = None,
 ) -> list[RawFunctionTool]:
     """Adapts every ``ToolSpec`` in ``registry`` into a livekit
     ``RawFunctionTool`` ready to hand to ``Agent(tools=...)``.
+
+    ``gate`` (the real T-6 ``FillerGate``) is threaded through to every
+    dispatcher unchanged; see ``_make_dispatcher``.
     """
     tools: list[RawFunctionTool] = []
     for spec in registry:
-        dispatcher = _make_dispatcher(spec, prefs_getter=prefs_getter, model_client=model_client)
+        dispatcher = _make_dispatcher(
+            spec, prefs_getter=prefs_getter, model_client=model_client, gate=gate
+        )
         tools.append(
             function_tool(
                 dispatcher,

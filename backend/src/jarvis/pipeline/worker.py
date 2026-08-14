@@ -5,6 +5,12 @@ for tool selection/chit-chat, escalating to TOOL_MODEL for `heavy` tools --
 see tools_wiring.py) replies grounded in real tool results, TTS (Cartesia
 default / Aura-2 fallback, env-selected) streams out. Emits agent_state +
 transcript data-channel events and per-turn latency JSONL.
+
+T-15 assembles the real T-6 cadence package here too: a ``FillerGate`` (spoken
+acknowledgment when a `heavy` tool call outlives ``FILLER_THRESHOLD_MS``, see
+``cadence_wiring.build_filler_gate`` / ``tools_wiring._dispatch``) and a
+``TurnController`` (barge-in pause + stop-phrase cancel, fed from the same
+session events ``session_wiring.wire_session_events`` already wires).
 """
 
 from __future__ import annotations
@@ -13,7 +19,10 @@ import os
 
 from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 
+from jarvis.cadence.interrupt import TurnController
+
 from .agent import JarvisAgent
+from .cadence_wiring import build_filler_gate
 from .events import DataChannelPublisher
 from .latency import LatencyLogger
 from .providers import build_llm, build_stt, build_tts
@@ -54,11 +63,15 @@ async def entrypoint(ctx: JobContext) -> None:
 
     publisher = DataChannelPublisher(ctx.room)
     latency = LatencyLogger(model=getattr(session.llm, "model", "unknown"))
-    wire_session_events(session, publisher, latency)
+    turn_controller = TurnController()
+    wire_session_events(session, publisher, latency, turn_controller=turn_controller)
+
+    filler_gate = build_filler_gate(session, publisher=publisher)
 
     agent = JarvisAgent(
         registry=registry,
         prefs_getter=lambda: memory.preferences(_resolve_user_id(ctx.room)),
+        filler_gate=filler_gate,
     )
     await session.start(agent=agent, room=ctx.room)
 
