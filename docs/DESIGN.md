@@ -118,7 +118,11 @@ rule in CLAUDE.md governs *building this repo*, not this product feature.)
   `limitations: []`, `version` (T-2).
 - Latency log: JSONL per turn `{turn_id, turn_end_ts, first_audio_ts,
   tool_ms, model}` → `scripts/latency_report.py` prints p50/p95 (R1
-  evidence).
+  evidence). Written to the relative path `var/latency.jsonl`; on the
+  deployed worker (Fly, `WORKDIR /app`, no `[mounts]`) that is
+  `/app/var/latency.jsonl` on the machine's own ephemeral disk, not
+  `backend/var/latency.jsonl` in this repo -- see docs/latency-report.md
+  §Where deployed latency records actually come from (T-26).
 
 ## Decisions & rationale
 

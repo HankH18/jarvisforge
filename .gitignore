@@ -21,3 +21,13 @@ dist/
 
 # --- Hook-generated verify receipts ---
 .claude/evidence/
+
+# --- Runtime output (T-26) ---
+# jarvis.pipeline.latency.LatencyLogger's DEFAULT_LATENCY_LOG_PATH is the
+# relative path "var/latency.jsonl", written wherever a run's cwd happens to
+# be (backend/var/ for a local `uv run` from backend/); no leading slash so
+# this also covers a top-level var/ if some other entrypoint's cwd is the
+# repo root. Per-run telemetry, not something to diff or ship in a
+# submission zip -- see docs/latency-report.md for where the durable,
+# committed measurement history actually lives.
+var/
