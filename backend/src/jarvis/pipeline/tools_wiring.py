@@ -280,24 +280,49 @@ def _make_dispatcher(
     async def _dispatch(raw_arguments: dict[str, Any], ctx: RunContext) -> None:
         question = _last_user_utterance(ctx.session.history) or f"({spec.name} request)"
 
-        try:
-            call = asyncio.to_thread(spec.handler, **raw_arguments)
-            result = await (gate.guard(call, heavy=spec.heavy) if gate is not None else call)
-        except Exception as exc:  # a broken handler must not crash the voice loop
-            logger.exception("tool handler %s raised", spec.name)
-            result = ToolResult(
-                source=spec.name, fetched_at=datetime.now(UTC).isoformat(), data={}, error=str(exc)
-            )
+        async def _run_tool_and_synthesize() -> str:
+            """The real end-to-end "heavy" span: the tool handler AND the
+            grounded-synthesis LLM call that turns its result into spoken
+            text. Both run off the event loop thread via ``asyncio.to_thread``
+            -- ``synthesize_grounded`` is a blocking network call exactly like
+            ``spec.handler``, and calling it inline here (as before) blocked
+            the event loop for its whole duration, the same starvation bug
+            already fixed for ``spec.handler``.
 
-        try:
-            model = route_model([spec])
-            prefs = prefs_getter()
-            answer = synthesize_grounded(
-                question, [result], prefs, model=model, client=model_client
-            )
-        except Exception:
-            logger.exception("grounded synthesis failed for tool %s", spec.name)
-            answer = REFUSAL
+            Measured live (T-15 verification): a real ``github_query`` call
+            itself is fast (~350-450ms, often *under* ``FILLER_THRESHOLD_MS``
+            on its own), but the escalated-model ``synthesize_grounded`` call
+            that follows it took ~2.7s. Gating only the handler (as the
+            initial T-15 wiring did) meant the filler's timer almost never
+            actually fired on a real heavy-tool turn even though the user
+            waited multiple seconds -- the gate was watching the wrong span.
+            Wrapping both calls in one guarded awaitable makes the 500ms
+            threshold apply to the span the user actually experiences as
+            "slow", with still at most one filler per dispatch.
+            """
+            try:
+                result = await asyncio.to_thread(spec.handler, **raw_arguments)
+            except Exception as exc:  # a broken handler must not crash the voice loop
+                logger.exception("tool handler %s raised", spec.name)
+                result = ToolResult(
+                    source=spec.name,
+                    fetched_at=datetime.now(UTC).isoformat(),
+                    data={},
+                    error=str(exc),
+                )
+
+            try:
+                model = route_model([spec])
+                prefs = prefs_getter()
+                return await asyncio.to_thread(
+                    synthesize_grounded, question, [result], prefs, model=model, client=model_client
+                )
+            except Exception:
+                logger.exception("grounded synthesis failed for tool %s", spec.name)
+                return REFUSAL
+
+        call = _run_tool_and_synthesize()
+        answer = await (gate.guard(call, heavy=spec.heavy) if gate is not None else call)
 
         ctx.session.say(answer, allow_interruptions=True)
         raise StopResponse()
