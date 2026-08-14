@@ -252,6 +252,39 @@
       "depends_on": ["T-2", "T-3", "T-4", "T-5"],
       "non_goals": ["No new tools - wire the ones that already exist", "No changes to the pinned ToolResult or synthesize_grounded contracts"],
       "parallel_safe": false
+    },
+    {
+      "id": "T-15",
+      "title": "Wire cadence into the voice agent: fillers, barge-in, stop phrase",
+      "objective": "T-6 built backend/src/jarvis/cadence/ (FillerGate, TurnController, pre-synthesized Cartesia filler clips) with 69 passing tests, but nothing in backend/src/jarvis/pipeline/ imports it -- the same gap T-14 fixed for tools. R2 (spoken acknowledgment within 300ms when a lookup will take >500ms) and R4 (barge-in pauses playback, stop phrases cancel the turn) are unmet in the running product. Measured tool turns on the deployment take 1.6-14.4s, so the filler is what makes them bearable.",
+      "refs": ["R2", "R4", "DESIGN#interfaces"],
+      "acceptance": [
+        "A heavy/slow tool turn plays a pre-synthesized filler clip; a fast turn plays none",
+        "The agent_state wire vocabulary emits \"working\" while a heavy tool runs (events.py reserves it for exactly this)",
+        "User speech during playback pauses it (barge-in); a stop phrase cancels the turn",
+        "An integration test drives the real session wiring and asserts a filler was played on a slow turn and not on a fast one"
+      ],
+      "verify": "cd backend && uv run pytest tests/pipeline tests/cadence -q && uv run ruff check src",
+      "scope": ["backend/src/jarvis/pipeline/**", "backend/src/jarvis/cadence/**", "backend/tests/pipeline/**", "backend/tests/cadence/**"],
+      "depends_on": ["T-6", "T-14"],
+      "non_goals": ["No new filler assets; use the committed Cartesia clips", "No semantic turn-detection model swaps"],
+      "parallel_safe": false
+    },
+    {
+      "id": "T-16",
+      "title": "Meet R1: cut time-to-first-audio on no-lookup turns below 800ms p95",
+      "objective": "Measured over 55 real deployed turns, no-lookup replies run p50 821ms / p95 1448ms against R1's 800ms p95 bar (docs/latency-report.md). Close the gap with the cheap levers first: LiveKit preemptive generation, TTS time-to-first-byte settings, and removing any avoidable round-trip on turns where no tool fires. Also fix the observability gaps found while measuring -- tool_ms is logged as 0.0 even when a tool fires, and `model` always logs CONVO_MODEL even on escalated turns -- so the report can tell lookup from no-lookup without the driver.",
+      "refs": ["R1", "DESIGN#verification-strategy"],
+      "acceptance": [
+        "tool_ms is populated with real tool time, and `model` reflects the model that actually answered the turn",
+        "A fresh >=50-turn deployed run is captured and docs/latency-report.md regenerated from it",
+        "p95 time-to-first-audio on no-lookup turns is <= 800ms -- or, if the cascaded pipeline cannot reach it, the report states the achieved figure and the specific remaining bottleneck with evidence rather than quietly missing the bar"
+      ],
+      "verify": "cd backend && uv run pytest tests/pipeline -q && uv run ruff check src",
+      "scope": ["backend/src/jarvis/pipeline/**", "backend/tests/pipeline/**", "scripts/**", "docs/latency-report.md", "fly.toml"],
+      "depends_on": ["T-14"],
+      "non_goals": ["No speech-to-speech model swap (SPEC rejects it)", "Do not weaken R1's definition to make it pass"],
+      "parallel_safe": false
     }
   ]
 }
