@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "engine": "cartesia",
+  "voice": "default",
+  "sample_rate": 24000,
+  "channels": 1,
+  "generated_at": "2026-08-14T03:22:02Z",
+  "clips": [
+    {
+      "slug": "weather-london",
+      "text": "What's the weather in London right now?",
+      "category": "weather",
+      "file": "weather-london.wav",
+      "duration_ms": 2239,
+      "sha256": "69297eca58ab846fee6b6cdd83de351f6ec175d6e02a6c74ec96ec527ce33b21"
+    },
+    {
+      "slug": "weather-tokyo",
+      "text": "Is it raining in Tokyo today?",
+      "category": "weather",
+      "file": "weather-tokyo.wav",
+      "duration_ms": 1403,
+      "sha256": "b8477c9f531db673f338e942d37be3522456314baecb0e692bb665224e427589"
+    },
+    {
+      "slug": "github-octocat-issues",
+      "text": "How many open issues does octocat slash Hello World have?",
+      "category": "github",
+      "file": "github-octocat-issues.wav",
+      "duration_ms": 3029,
+      "sha256": "a0dbf507ca31e664e1c8adcfbc4e0de45471c998e478e6aca5b8dc50d5319d6f"
+    },
+    {
+      "slug": "github-repo-stars",
+      "text": "How many stars does torvalds slash linux have?",
+      "category": "github",
+      "file": "github-repo-stars.wav",
+      "duration_ms": 2425,
+      "sha256": "c7f01a31ecae2df5be1b288655139474bbeea4212214e9fdbe3c01ff0a76a486"
+    },
+    {
+      "slug": "capability-what-can-you-do",
+      "text": "What can you actually do?",
+      "category": "capability",
+      "file": "capability-what-can-you-do.wav",
+      "duration_ms": 1821,
+      "sha256": "549484069e032ecc692e728e76b816e1cdfff700348e80b228f4a15e77d644ff"
+    },
+    {
+      "slug": "capability-list-tools",
+      "text": "What tools do you have access to?",
+      "category": "capability",
+      "file": "capability-list-tools.wav",
+      "duration_ms": 1635,
+      "sha256": "0a7459a4184a6f89d6bfeda2012a48cc6ffcc9b943864001a6808396c585d296"
+    },
+    {
+      "slug": "memory-remember-celsius",
+      "text": "Remember that I prefer temperatures in Celsius.",
+      "category": "memory",
+      "file": "memory-remember-celsius.wav",
+      "duration_ms": 2286,
+      "sha256": "57487844c60cab347c55bcaec7c34dda72e2e2bd7f6cf8a14850ba9e4410b4a0"
+    },
+    {
+      "slug": "memory-recall-preference",
+      "text": "What temperature unit do I prefer?",
+      "category": "memory",
+      "file": "memory-recall-preference.wav",
+      "duration_ms": 1682,
+      "sha256": "0cd46605faaa1181638f313a37594159b41c50fdc4441cc753896d1989532421"
+    },
+    {
+      "slug": "chat-how-are-you",
+      "text": "How are you doing today?",
+      "category": "chat",
+      "file": "chat-how-are-you.wav",
+      "duration_ms": 1264,
+      "sha256": "7279561a7172f743c216986611908a813bc1f626c5e7c29e25ea023e65c3c686"
+    },
+    {
+      "slug": "chat-tell-joke",
+      "text": "Tell me a short joke.",
+      "category": "chat",
+      "file": "chat-tell-joke.wav",
+      "duration_ms": 1125,
+      "sha256": "0a9c53f003babbb0b58acb4618f907d1080f5a04acf7fbe530c0f8ddea00d28e"
+    },
+    {
+      "slug": "chat-favorite-color",
+      "text": "What's your favorite color?",
+      "category": "chat",
+      "file": "chat-favorite-color.wav",
+      "duration_ms": 1032,
+      "sha256": "52224245961aa3723bea1cf6cf9c937bc1d3132b023970a41a7ea480ddfecc75"
+    },
+    {
+      "slug": "chat-good-morning",
+      "text": "Good morning, how's it going?",
+      "category": "chat",
+      "file": "chat-good-morning.wav",
+      "duration_ms": 1496,
+      "sha256": "97b66ac5496746c4be1008284d08a77d044dd83f15cccf217478b1f21028a27d"
+    }
+  ]
+}

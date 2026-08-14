@@ -1,0 +1,6 @@
+{"turn_id": 1, "turn_end_ts": 1786678102.970311, "first_audio_ts": 1786678103.890156, "tool_ms": 0.0, "model": "claude-haiku-4-5"}
+{"turn_id": 2, "turn_end_ts": 1786678129.320949, "first_audio_ts": 1786678129.947816, "tool_ms": 0.0, "model": "claude-haiku-4-5"}
+{"turn_id": 1, "turn_end_ts": 1786678361.860864, "first_audio_ts": 1786678363.510975, "tool_ms": 0.0, "model": "claude-haiku-4-5"}
+{"turn_id": 2, "turn_end_ts": 1786678408.8119922, "first_audio_ts": 1786678410.042293, "tool_ms": 0.0, "model": "claude-haiku-4-5"}
+{"turn_id": 1, "turn_end_ts": 1786678725.4482508, "first_audio_ts": 1786678726.3181372, "tool_ms": 0.0, "model": "claude-haiku-4-5"}
+{"turn_id": 2, "turn_end_ts": 1786678759.544831, "first_audio_ts": 1786678760.320587, "tool_ms": 0.0, "model": "claude-haiku-4-5"}
