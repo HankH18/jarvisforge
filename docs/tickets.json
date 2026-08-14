@@ -226,7 +226,7 @@
         "Hank has reviewed and approved golden.jsonl (approval noted in the file header comment) - REQUIRED before close",
         "evals.run reports 0 fabrications and 0 wrong-refusals; nonzero exits nonzero"
       ],
-      "verify": "cd backend && uv run python -m evals.run --golden evals/golden.jsonl --max-fabrications 0",
+      "verify": "cd backend && uv run python -m evals.run --golden evals/golden.jsonl --max-fabrications 0 --require-approved",
       "scope": [
         "backend/evals/**"
       ],

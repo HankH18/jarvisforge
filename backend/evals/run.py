@@ -37,12 +37,30 @@ if _DOTENV.is_file():
 
     load_dotenv(_DOTENV, override=False)
 
-from evals.scoring import CaseOutcome, GoldenCase, load_golden, score  # noqa: E402
+from evals.scoring import (  # noqa: E402
+    CaseOutcome,
+    GoldenCase,
+    load_golden,
+    load_meta,
+    missing_approval_fields,
+    score,
+)
 
 if TYPE_CHECKING:
     from jarvis.llm.synthesis import ModelClient
 
 _SELFTEST_BANNER = "*** SELF-TEST MODE: results are NOT evidence of grounding (SPEC R6a) ***"
+
+# T-25: the golden set is SPEC R6a's external ground truth precisely because
+# a human -- not an agent -- reviewed it (T-7 acceptance 2, _meta.approved_by/
+# approved_at). Printed at both the start and end of a draft run so it can't
+# scroll out of view, mirroring the existing _SELFTEST_BANNER pattern above.
+_DRAFT_BANNER = (
+    "*** DRAFT RUN: golden set is NOT APPROVED (T-7 acceptance 2, SPEC R6a) -- "
+    "_meta.approved_by/approved_at is missing or blank. This result is NOT "
+    "EVIDENCE of grounding. Do not cite it to close T-7 or any gate that "
+    "depends on it. ***"
+)
 
 
 class EchoModelClient:
@@ -84,7 +102,9 @@ def _run_case(case: GoldenCase, *, model: str, client: ModelClient | None) -> Ca
     return score(case, answer)
 
 
-def _summarize(outcomes: list[CaseOutcome], args: argparse.Namespace) -> tuple[int, dict]:
+def _summarize(
+    outcomes: list[CaseOutcome], args: argparse.Namespace, *, draft: bool = False
+) -> tuple[int, dict]:
     totals = Counter(o.verdict for o in outcomes)
     per_kind = Counter(o.kind for o in outcomes)
 
@@ -114,16 +134,30 @@ def _summarize(outcomes: list[CaseOutcome], args: argparse.Namespace) -> tuple[i
     if errors:
         reasons.append(f"errors {errors} > 0")
 
+    exit_code = 1 if reasons else 0
+
     print()
-    if reasons:
+    if draft:
+        # Never print a bare PASS/FAIL for an unapproved golden set -- a
+        # clean scoring result here is plumbing-only and must not be
+        # mistakable for T-7 acceptance-2 evidence (SPEC R6a). A reader (or
+        # a script grepping for "PASS:") will not find that string here.
+        scoring_would_say = "FAIL" if reasons else "PASS"
+        print(
+            f"DRAFT-NOT-EVIDENCE (scoring would say {scoring_would_say}): "
+            f"{len(outcomes)} cases, {fabrications} fabrications, "
+            f"{wrong_refusals} wrong refusals, {missing_includes} missing "
+            f"includes, {errors} errors -- golden set is UNAPPROVED "
+            "(_meta.approved_by/approved_at missing or blank). This run does "
+            "NOT satisfy T-7 acceptance 2 and is NOT EVIDENCE of grounding."
+        )
+    elif reasons:
         print(f"FAIL: {'; '.join(reasons)}")
-        exit_code = 1
     else:
         print(
             f"PASS: {len(outcomes)} cases, {fabrications} fabrications, "
             f"{wrong_refusals} wrong refusals, 0 missing includes, 0 errors"
         )
-        exit_code = 0
 
     summary = {
         "total_cases": len(outcomes),
@@ -133,6 +167,8 @@ def _summarize(outcomes: list[CaseOutcome], args: argparse.Namespace) -> tuple[i
         "max_wrong_refusals": args.max_wrong_refusals,
         "exit_code": exit_code,
         "fail_reasons": reasons,
+        "draft": draft,
+        "evidence": not draft,
     }
     return exit_code, summary
 
@@ -181,11 +217,67 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--json", type=Path, default=None, dest="json_out", help="write the full report as JSON"
     )
     parser.add_argument("--verbose", action="store_true", help="print each case's full answer")
+    parser.add_argument(
+        "--draft-unapproved-not-evidence",
+        action="store_true",
+        help=(
+            "T-25/SPEC R6a: run against an UNAPPROVED golden set anyway, for "
+            "local plumbing/dev use ONLY. The result is explicitly NOT "
+            "EVIDENCE of grounding and is loudly labeled as such in the "
+            "output (never PASS/FAIL). Never pass this to satisfy T-7's gate "
+            "or any acceptance criterion that depends on this run."
+        ),
+    )
+    parser.add_argument(
+        "--require-approved",
+        action="store_true",
+        help=(
+            "Hard-refuse to run against an unapproved golden set even if "
+            "--draft-unapproved-not-evidence is also given. Verify/CI "
+            "commands should set this so approval enforcement can never be "
+            "silently combined away."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_argparser().parse_args(argv)
+
+    # T-25: gate FIRST, before the API-key check or any case is loaded --
+    # a golden set nobody reviewed shouldn't even spend an API call. T-7
+    # acceptance 2 requires a human's review of golden.jsonl, recorded in
+    # its _meta header; this is what makes that acceptance criterion
+    # machine-checkable instead of merely documented.
+    try:
+        meta = load_meta(args.golden)
+    except (ValueError, OSError) as exc:
+        print(f"error: failed to load {args.golden}: {exc}", file=sys.stderr)
+        return 2
+
+    missing = missing_approval_fields(meta)
+    draft = False
+    if missing:
+        reason = f"_meta.{' and '.join(missing)} missing or blank in {args.golden}"
+        if args.require_approved or not args.draft_unapproved_not_evidence:
+            refused_draft = (
+                " (refused: --require-approved was also set)"
+                if args.require_approved and args.draft_unapproved_not_evidence
+                else ""
+            )
+            print(
+                "error: golden set is NOT APPROVED for evaluation (T-7 "
+                f"acceptance 2, SPEC R6a): {reason}. A human must review "
+                "golden.jsonl and record approved_by/approved_at in its "
+                "_meta header before a run counts as evidence -- no agent "
+                "may fill these in (see backend/evals/README.md). For a "
+                "local plumbing/dev run only, NOT evidence of grounding, "
+                f"pass --draft-unapproved-not-evidence.{refused_draft}",
+                file=sys.stderr,
+            )
+            return 3
+        draft = True
+        print(_DRAFT_BANNER, file=sys.stderr)
 
     if args.client == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
         print(
@@ -233,13 +325,15 @@ def main(argv: list[str] | None = None) -> int:
             line += f"\n      answer: {outcome.answer!r}"
         print(line)
 
-    exit_code, summary = _summarize(outcomes, args)
+    exit_code, summary = _summarize(outcomes, args, draft=draft)
 
     if args.json_out is not None:
         _write_json_report(args.json_out, outcomes, summary)
 
     if args.client == "echo":
         print(_SELFTEST_BANNER, file=sys.stderr)
+    if draft:
+        print(_DRAFT_BANNER, file=sys.stderr)
 
     return exit_code
 

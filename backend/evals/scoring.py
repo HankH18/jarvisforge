@@ -70,6 +70,83 @@ def load_golden(path: str | Path) -> list[GoldenCase]:
     return cases
 
 
+def load_meta(path: str | Path) -> dict[str, Any] | None:
+    """Return the `{"id": "_meta", ...}` header object from `path`, or
+    `None` if the file has no such line. Mirrors `load_golden`'s line-by-line
+    JSON parsing (same `ValueError` shape for malformed JSON) so callers get
+    a consistent error surface whether they ask for the cases or the header.
+
+    Raises `ValueError` if MORE THAN ONE line has `"id": "_meta"`. Silently
+    picking the first (or last) would let a forged approved `_meta` line
+    placed ahead of the genuine one make an unapproved set look approved --
+    a golden set with two headers is malformed, not a judgment call, so this
+    refuses rather than picking a winner (T-25).
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    meta: dict[str, Any] | None = None
+    meta_lineno: int | None = None
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"golden set line {lineno}: invalid JSON ({exc})") from exc
+        if raw.get("id") == "_meta":
+            if meta is not None:
+                raise ValueError(
+                    f"golden set line {lineno}: duplicate _meta header (first seen at "
+                    f"line {meta_lineno}) -- a golden set must have exactly one _meta "
+                    "line; refusing to silently pick one over the other"
+                )
+            meta = raw
+            meta_lineno = lineno
+    return meta
+
+
+def _is_real_approval_value(value: Any) -> bool:
+    """True iff `value` is a plain `str` containing at least one
+    alphanumeric character.
+
+    Two separate holes this closes at once:
+    - Non-`str` shapes (`0`, `False`, `True`, `[]`, `{}`, `3.14`, `None`,
+      a nested object) must never read as "approved" just because
+      `str(value)` happens to stringify to something non-empty (`str(0) ==
+      "0"`, `str(False) == "False"`) -- only an actual `str` counts, and
+      note `bool` is deliberately excluded even though `isinstance(True,
+      int)` is `True` in Python: `isinstance(value, str)` alone already
+      excludes every bool, so there is no separate bool special-case to
+      get wrong.
+    - A `str` with no alphanumeric content at all -- `""`, whitespace-only
+      (`"   "`, `"\\t\\n "`), or punctuation-only (`"---"`) -- is not a
+      human's name or a date any more than an empty string is; requiring
+      at least one alphanumeric character catches all three with one rule
+      instead of three separate blank-string special cases.
+    """
+    return isinstance(value, str) and any(ch.isalnum() for ch in value)
+
+
+def missing_approval_fields(meta: dict[str, Any] | None) -> list[str]:
+    """Which of `approved_by`/`approved_at` are absent or not a real
+    approval value in `meta` (T-7 acceptance 2 / SPEC R6a: a human's review
+    of the golden set, recorded in the `_meta` header, is what makes this an
+    external ground truth rather than a set an agent signed off on itself).
+
+    A field counts as missing whenever `_is_real_approval_value` is False --
+    see that function for the full enumeration (non-`str` shapes, blank
+    strings, whitespace-only strings, punctuation-only strings), plus:
+    - `meta is None` (no `_meta` line in the file at all) -> both fields
+    - the key absent from `_meta` (`meta.get(key)` returns `None`, which
+      `_is_real_approval_value` already rejects)
+    """
+    if meta is None:
+        return ["approved_by", "approved_at"]
+    return [
+        key for key in ("approved_by", "approved_at") if not _is_real_approval_value(meta.get(key))
+    ]
+
+
 def _parse_case(raw: dict[str, Any]) -> GoldenCase:
     case_id = raw.get("id") or "<missing id>"
 
