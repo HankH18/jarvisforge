@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentState, JarvisEvent, TranscriptEvent, TranscriptRole } from '../lib/types'
 import { fetchToken as defaultFetchToken, TokenError } from '../lib/token'
-import { createLiveKitSession, type RoomSession } from '../lib/room'
+import type { RoomSession } from '../lib/room'
 
 /** User-facing copy for a failed join. The underlying error is logged, not shown. */
 function joinErrorMessage(err: unknown): string {
@@ -71,7 +71,12 @@ function mergeTranscript(lines: TranscriptLine[], event: TranscriptEvent): Trans
 }
 
 export function useJarvisSession(options?: UseJarvisSessionOptions): JarvisSession {
-  const createSession = options?.createSession ?? createLiveKitSession
+  // No static import of createLiveKitSession here: it pulls in livekit-client
+  // (the bulk of the production bundle). Tests always inject createSession,
+  // so the dynamic import below is only ever taken on the real join path,
+  // letting Vite split livekit-client into a chunk fetched on first join
+  // rather than shipping it in the initial page load.
+  const createSession = options?.createSession
   const fetchTokenImpl = options?.fetchToken ?? defaultFetchToken
   const identityRef = useRef(options?.identity ?? generateIdentity())
 
@@ -123,7 +128,9 @@ export function useJarvisSession(options?: UseJarvisSessionOptions): JarvisSessi
       setStatus('connecting')
       setError(null)
 
-      const session = createSession()
+      const session = createSession
+        ? createSession()
+        : (await import('../lib/room')).createLiveKitSession()
       sessionRef.current = session
       unsubscribersRef.current = [
         session.onEvent(handleEvent),
