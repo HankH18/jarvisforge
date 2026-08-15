@@ -1,5 +1,42 @@
 # Latency report: time-to-first-audio
 
+## 2026-08-15 — FIRST REAL MEASUREMENT. R1 is NOT met, and preemptive TTS is not the reason.
+
+Cartesia was upgraded on 2026-08-15, so for the first time the assistant could actually
+speak and be measured. Two things were established.
+
+**1. The product works end to end.** A live LiveKit conversation against a local worker
+completed 3/3 turns: real speech in, correct STT (`"What can you actually do?"`), a
+grounded manifest-based reply, and real synthesized audio out. Artifact:
+`docs/first-live-conversation-2026-08-15.json`. Until this run, every test in this repo
+passed against a product that had never been shown to talk.
+
+**2. R1 is missed, in both configurations.** R1 wants no-lookup time-to-first-audio
+**p95 < 800 ms**. Measured over 8 no-lookup turns per configuration (`tool_ms == 0`),
+chat-only utterance corpus, worker-side `first_audio_ts - turn_end_ts`:
+
+| config | n | median | p95 |
+|---|---|---|---|
+| preemptive TTS **off** | 8 | 820 ms | **1130 ms** |
+| preemptive TTS **on**  | 8 | 867 ms | **1085 ms** |
+
+Raw records: `docs/latency-local-2026-08-15-preemptive-ab.jsonl`.
+
+**The two configurations are indistinguishable.** That matters, because preemptive TTS is
+the lever that can cost up to 4× in Cartesia credits (it synthesizes speculatively on every
+STT transcript revision and discards the result; Cartesia bills by seconds of *generated*
+audio). On this evidence the lever buys no measurable latency and is not worth its cost —
+which is why it now defaults off, opt-in via `$JARVIS_PREEMPTIVE_TTS`.
+
+**Honesty about this measurement:** n=8 per configuration is small, and an earlier single
+no-lookup sample suggested a ~1000 ms win for preemptive-on that **did not survive a larger
+sample** — it was noise. This run also drove a **local** worker on a laptop against LiveKit
+Cloud, not the deployed Fly worker in `iad`, so the absolute numbers are not the deployed
+numbers. What it does establish: the pipeline works, R1 is missed by roughly 40% locally,
+and preemptive TTS is not the fix. A deployed re-measurement is still owed.
+
+---
+
 ## T-16 STATUS (2026-08-14): observability fixed + two latency levers landed; deployed re-measurement still blocked on Cartesia credits
 
 T-9's redeploy (see below) found Cartesia TTS returning HTTP 402 ("Model credits limit

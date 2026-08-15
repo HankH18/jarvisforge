@@ -1,0 +1,16 @@
+{"turn_id": 1, "turn_end_ts": 1786828018.454962, "first_audio_ts": 1786828019.3224661, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 867.5}
+{"turn_id": 2, "turn_end_ts": 1786828027.762479, "first_audio_ts": 1786828027.915621, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 153.1}
+{"turn_id": 4, "turn_end_ts": 1786828031.536455, "first_audio_ts": 1786828032.493292, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 956.8}
+{"turn_id": 5, "turn_end_ts": 1786828040.605006, "first_audio_ts": 1786828041.327424, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 722.4}
+{"turn_id": 6, "turn_end_ts": 1786828046.18494, "first_audio_ts": 1786828047.1363661, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 951.4}
+{"turn_id": 7, "turn_end_ts": 1786828056.6317708, "first_audio_ts": 1786828057.4037719, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 772.0}
+{"turn_id": 8, "turn_end_ts": 1786828063.0559812, "first_audio_ts": 1786828064.1857312, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 1129.8}
+{"turn_id": 9, "turn_end_ts": 1786828071.354721, "first_audio_ts": 1786828072.0986292, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_off", "ttfa_ms": 743.9}
+{"turn_id": 1, "turn_end_ts": 1786828089.478127, "first_audio_ts": 1786828090.3211641, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 843.0}
+{"turn_id": 2, "turn_end_ts": 1786828097.7875829, "first_audio_ts": 1786828097.923328, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 135.7}
+{"turn_id": 4, "turn_end_ts": 1786828101.5589602, "first_audio_ts": 1786828102.530581, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 971.6}
+{"turn_id": 5, "turn_end_ts": 1786828110.0492039, "first_audio_ts": 1786828110.9395342, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 890.3}
+{"turn_id": 6, "turn_end_ts": 1786828116.504765, "first_audio_ts": 1786828117.5894358, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 1084.7}
+{"turn_id": 7, "turn_end_ts": 1786828127.69952, "first_audio_ts": 1786828128.690725, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 991.2}
+{"turn_id": 8, "turn_end_ts": 1786828134.500496, "first_audio_ts": 1786828135.265711, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 765.2}
+{"turn_id": 9, "turn_end_ts": 1786828142.776451, "first_audio_ts": 1786828143.536052, "tool_ms": 0.0, "model": "claude-haiku-4-5", "config": "preemptive_on", "ttfa_ms": 759.6}

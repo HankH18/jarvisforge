@@ -1,0 +1,40 @@
+{
+  "room": "live-proof-1786827838",
+  "identity": "drive-turns-2ee63579",
+  "agent_joined": true,
+  "turns": [
+    {
+      "turn": 1,
+      "utterance_file": "capability-list-tools.wav",
+      "user_transcript": "Tools do you have access to?",
+      "assistant_transcript": null,
+      "ttfa_ms": 4092.761917039752,
+      "completed": true,
+      "timed_out": false
+    },
+    {
+      "turn": 2,
+      "utterance_file": "capability-what-can-you-do.wav",
+      "user_transcript": "What can you actually do?",
+      "assistant_transcript": "Based on my manifest, I have access to the following capabilities:\n\n1. **Real-time spoken conversation** \u2013 I can reply within about 800ms when no external lookup is needed (R1).\n\n2. **Responsive acknowledgments** \u2013 When a lookup takes time, I speak a brief acknowledgment within 300ms and never leave more than 2 seconds of silence (R2).\n\n3. **Cross-session memory** \u2013 I can remember facts and preferences you've shared in past sessions and recall them later (R3).\n\n4. **Barge-in / interruption",
+      "ttfa_ms": 1708.300790982321,
+      "completed": true,
+      "timed_out": false
+    },
+    {
+      "turn": 3,
+      "utterance_file": "chat-favorite-color.wav",
+      "user_transcript": "What's your favorite color?",
+      "assistant_transcript": "** \u2013 While",
+      "ttfa_ms": 1678.059667116031,
+      "completed": true,
+      "timed_out": false
+    }
+  ],
+  "summary": {
+    "attempted": 3,
+    "requested": 3,
+    "completed": 3,
+    "timed_out": 0
+  }
+}
