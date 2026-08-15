@@ -255,6 +255,19 @@ fi
 # legitimately fail this check for the first $SMOKE_WORKER_STABLE_WINDOW_SECONDS
 # seconds after it starts -- that is intentional, not a bug: "just started"
 # and "stably serving" are different claims.
+#
+# T-32 hardening: an audit found the embedded parser below fail-OPEN on
+# shape drift in "events" -- an exit event with a missing/unparseable
+# timestamp was silently skipped (exactly the crash signal this check
+# exists to catch could vanish behind a green verdict), and "events" as a
+# non-list or a non-dict entry inside it crashed the parser outright, which
+# the shell catch-all then reported as an unhelpful, unnamed "no parseable
+# verdict" rather than a named failure. All three are now explicit,
+# named, fail-closed branches (see the T-32 comments inline below).
+# Re-verified 2026-08-14 against a live authenticated `flyctl machine list
+# -a jarvisforge -j` (flyctl v0.4.83): real payload shape matches every
+# assumption above (a sanitized snapshot is embedded as the
+# `live_shape_snapshot` case in scripts/tests/run_smoke_exit_code_tests.sh).
 # ---------------------------------------------------------------------------
 SMOKE_WORKER_STABLE_WINDOW_SECONDS="${SMOKE_WORKER_STABLE_WINDOW_SECONDS:-300}"
 
@@ -310,21 +323,47 @@ for m in started:
     if events is None:
         bad_reasons.append(f"{mid} - no event history in flyctl output; cannot confirm it has not just crash-restarted")
         continue
+    if not isinstance(events, list):
+        # T-32: an "events" field that parses but is not a list (e.g. a
+        # dict) used to hit `for e in events:` and crash the embedded
+        # parser; the shell catch-all then reported an unhelpful "no
+        # parseable verdict" instead of naming what was actually wrong.
+        # Fail this machine closed, by name, instead.
+        bad_reasons.append(f"{mid} - UNKNOWN: events field is not a list (got {type(events).__name__}); cannot safely inspect the event history for this machine")
+        continue
 
     recent_exit_age = None
+    bad_event_reason = None
     for e in events:
+        if not isinstance(e, dict):
+            # T-32: a non-dict entry inside events[] used to crash on the
+            # e.get(...) calls below; name it instead of letting it crash.
+            bad_event_reason = f"UNKNOWN: events[] contains a non-dict entry ({type(e).__name__}); cannot safely inspect the event history for this machine"
+            break
         if str(e.get("type") or "").lower() != "exit":
             continue
+        raw_ts = e.get("timestamp")
         try:
-            ts = float(e.get("timestamp"))
+            ts = float(raw_ts)
         except (TypeError, ValueError):
-            continue
+            # T-32 fix: this branch used to `continue` past the bad event
+            # silently -- the fail-OPEN bug this ticket closes. A missing or
+            # unparseable timestamp on a real "exit" event is exactly the
+            # signal this check exists to catch (a recent crash); it must
+            # never vanish silently behind a green verdict. Fail closed and
+            # name it instead.
+            bad_event_reason = f"UNKNOWN: exit event timestamp unparseable ({raw_ts!r}); cannot confirm it has not just crash-restarted"
+            break
         ts_sec = ts / 1000.0 if ts > 1e12 else ts
         age = now - ts_sec
         if age < 0:
             continue
         if recent_exit_age is None or age < recent_exit_age:
             recent_exit_age = age
+
+    if bad_event_reason is not None:
+        bad_reasons.append(f"{mid} - {bad_event_reason}")
+        continue
 
     if recent_exit_age is not None and recent_exit_age <= stable_window:
         bad_reasons.append(f"{mid} exited {int(recent_exit_age)}s ago and is now reporting state=started again -- crash-looping, not serving")

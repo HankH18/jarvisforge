@@ -27,11 +27,38 @@
 # environment -- this harness does not change that; it tests smoke_deploy.sh
 # against that documented, assumed shape.
 #
-# Four cases, each asserting an exact exit code:
+# T-23's four cases, each asserting an exact exit code:
 #   1. no_credentials      -> non-zero (flyctl unauthenticated)
 #   2. healthy_deployment  -> zero     (worker started, no recent exit)
 #   3. crash_looping       -> non-zero (worker started, but exited 5s ago)
 #   4. worker_absent       -> non-zero (no worker-group machine at all)
+#
+# T-32 adds six more (5-10), each asserting an exit code AND a distinct,
+# greppable named-reason substring in smoke_deploy.sh's own output -- an
+# audit found the worker check's embedded parser fail-OPEN on a missing or
+# unparseable exit-event timestamp (silently skipped, so a real crash
+# signal could vanish behind a green verdict) and crash outright on wrong
+# JSON shapes ("events" as a non-list, or a non-dict entry inside it),
+# which the shell catch-all then reported as an unhelpful, unnamed "no
+# parseable verdict" instead of naming what went wrong:
+#   5. exit_event_garbage_timestamp -> non-zero + named reason (the
+#      inversion case -- pre-T-32 this exited 0, silently healthy)
+#   6. exit_event_missing_timestamp -> non-zero + named reason
+#   7. events_as_dict                -> non-zero + named reason (not the
+#      generic crash-derived catch-all)
+#   8. events_non_dict_entry         -> non-zero + named reason (not the
+#      generic crash-derived catch-all)
+#   9. machine_missing_state         -> non-zero (T-23/pre-existing
+#      behavior, pinned down unchanged by this addition)
+#  10. live_shape_snapshot           -> zero (a real, sanitized, committed
+#      snapshot from a live authenticated flyctl -- proves the hardening
+#      above does not false-alarm on a real, legitimate payload)
+#
+# An eleventh, OPTIONAL case (live_fixture_local) runs only if a freshly,
+# locally captured live fixture is present on disk -- see
+# docs/ops-smoke-test.md for the one-step capture instruction. It is never
+# committed (flyctl auth is a human-local credential, not something CI or a
+# fresh checkout has), so its absence is normal, not a failure.
 #
 # Usage: bash scripts/tests/run_smoke_exit_code_tests.sh
 
@@ -102,15 +129,27 @@ CURL_STUB
 }
 
 # ---------------------------------------------------------------------------
-# run_case <name> <expect: zero|nonzero> <flyctl stub body...>
+# run_case <name> <expect: zero|nonzero|any> <flyctl stub body...> \
+#          [must_contain] [must_not_contain]
 # Writes the given flyctl stub body to a fresh bin dir (with the shared curl
 # stub), runs smoke_deploy.sh with that bin dir first on PATH, and asserts
-# the exit code matches expectation.
+# the exit code matches expectation (unless expect="any", added by T-32 for
+# cases whose exit code is not fixed -- see live_fixture_local below).
+#
+# T-32 additions (must_contain / must_not_contain, both optional, both
+# purely additive -- omitting them reproduces the exact original
+# zero/nonzero-only behavior the four T-23 cases below already rely on):
+# assert a substring IS or IS NOT present in smoke_deploy.sh's own output.
+# T-32 needs this because "the probe fails" is not the whole acceptance --
+# it must fail with a distinct, greppable, NAMED reason, not just a
+# nonzero exit code that could just as well come from a crash.
 # ---------------------------------------------------------------------------
 run_case() {
     local name="$1"
     local expect="$2"
     local flyctl_body="$3"
+    local must_contain="${4:-}"
+    local must_not_contain="${5:-}"
 
     local case_dir="${WORK_DIR}/${name}"
     local bin_dir="${case_dir}/bin"
@@ -129,12 +168,16 @@ run_case() {
 
     CASES_RUN=$((CASES_RUN + 1))
     local ok=1
+    local why=""
     case "$expect" in
         zero)
-            [ "$rc" -eq 0 ] || ok=0
+            [ "$rc" -eq 0 ] || { ok=0; why="expected exit 0, got ${rc}"; }
             ;;
         nonzero)
-            [ "$rc" -ne 0 ] || ok=0
+            [ "$rc" -ne 0 ] || { ok=0; why="expected nonzero exit, got 0"; }
+            ;;
+        any)
+            : # T-32: exit code intentionally not asserted for this case
             ;;
         *)
             printf 'BUG in test harness: unknown expectation %s\n' "$expect" >&2
@@ -142,11 +185,20 @@ run_case() {
             ;;
     esac
 
+    if [ "$ok" -eq 1 ] && [ -n "$must_contain" ] && ! grep -qF -- "$must_contain" "$out_file"; then
+        ok=0
+        why="expected output to contain: \"${must_contain}\""
+    fi
+    if [ "$ok" -eq 1 ] && [ -n "$must_not_contain" ] && grep -qF -- "$must_not_contain" "$out_file"; then
+        ok=0
+        why="expected output NOT to contain: \"${must_not_contain}\""
+    fi
+
     if [ "$ok" -eq 1 ]; then
-        printf 'PASS: %-20s exit=%-3s expected=%s\n' "$name" "$rc" "$expect"
+        printf 'PASS: %-26s exit=%-3s expected=%s\n' "$name" "$rc" "$expect"
     else
         FAILURES=$((FAILURES + 1))
-        printf 'FAIL: %-20s exit=%-3s expected=%s\n' "$name" "$rc" "$expect"
+        printf 'FAIL: %-26s exit=%-3s expected=%s (%s)\n' "$name" "$rc" "$expect" "$why"
         printf '  --- smoke_deploy.sh output ---\n'
         sed 's/^/  /' "$out_file"
         printf '  -------------------------------\n'
@@ -205,6 +257,134 @@ cat <<JSON
 ]
 JSON
 '
+
+# =============================================================================
+# T-32: wrong-JSON-shape probes. An audit found the worker check's embedded
+# parser fail-OPEN on a missing/unparseable exit-event timestamp (silently
+# skipped -> exactly the crash signal this check exists to catch could
+# vanish behind a green verdict), and crash outright on "events" as a
+# non-list or a non-dict entry inside events[] -- which the shell catch-all
+# then reported as an unhelpful, unnamed "no parseable verdict" rather than
+# a named failure. T-23's completion commit claimed probes like these
+# already "fail loudly", but none were ever committed here. These are.
+#
+# Cases 5-8 assert BOTH the exit code AND a distinct, greppable named
+# reason string in the output -- a nonzero exit alone would not distinguish
+# "correctly detected and named" from "crashed and got caught by the
+# generic catch-all", which is exactly the failure mode being closed here.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Case 5: exit event with a GARBAGE (non-numeric) timestamp. This is the
+# inversion case: proven by hand (see the T-32 completion report) that the
+# pre-T-32 smoke_deploy.sh exits 0 (silently healthy) for this exact input
+# -- the fail-open bug -- while the fixed script exits nonzero with a named
+# reason. One worker machine, state=started, its only event is a same-
+# machine "exit" whose timestamp is not parseable as a number at all.
+# ---------------------------------------------------------------------------
+run_case "exit_event_garbage_timestamp" "nonzero" '
+cat <<JSON
+[
+  {"id":"w1","name":"jarvisforge-worker","state":"started","config":{"metadata":{"fly_process_group":"worker"}},"checks":[],"events":[{"type":"exit","status":"failed","timestamp":"not-a-timestamp"}]}
+]
+JSON
+' "UNKNOWN: exit event timestamp unparseable"
+
+# ---------------------------------------------------------------------------
+# Case 6: exit event with the timestamp key missing entirely (not just
+# malformed) -- the "missing" half of "missing or unparseable timestamp".
+# ---------------------------------------------------------------------------
+run_case "exit_event_missing_timestamp" "nonzero" '
+cat <<JSON
+[
+  {"id":"w1","name":"jarvisforge-worker","state":"started","config":{"metadata":{"fly_process_group":"worker"}},"checks":[],"events":[{"type":"exit","status":"failed"}]}
+]
+JSON
+' "UNKNOWN: exit event timestamp unparseable"
+
+# ---------------------------------------------------------------------------
+# Case 7: "events" is a JSON object (dict), not an array -- the shape this
+# ticket's acceptance criteria calls out by name. Pre-T-32 this iterated
+# the dict's string keys and crashed on `e.get(...)` inside the embedded
+# parser; the shell catch-all converted that crash into the generic,
+# unnamed "no parseable verdict" failure instead of a named one.
+# ---------------------------------------------------------------------------
+run_case "events_as_dict" "nonzero" '
+cat <<JSON
+[
+  {"id":"w1","name":"jarvisforge-worker","state":"started","config":{"metadata":{"fly_process_group":"worker"}},"checks":[],"events":{"type":"exit","timestamp":123}}
+]
+JSON
+' "UNKNOWN: events field is not a list" "no parseable verdict"
+
+# ---------------------------------------------------------------------------
+# Case 8: "events" is a list, but one entry in it is not an object (e.g. a
+# bare string) -- same crash-then-generic-catch-all failure mode as case 7,
+# one level deeper.
+# ---------------------------------------------------------------------------
+run_case "events_non_dict_entry" "nonzero" '
+cat <<JSON
+[
+  {"id":"w1","name":"jarvisforge-worker","state":"started","config":{"metadata":{"fly_process_group":"worker"}},"checks":[],"events":["not-a-dict"]}
+]
+JSON
+' "UNKNOWN: events[] contains a non-dict entry" "no parseable verdict"
+
+# ---------------------------------------------------------------------------
+# Case 9: a machine entry with NO "state" key at all. This must continue to
+# fail exactly as it does today (T-32 acceptance: "a machine entry missing
+# state continues to fail as it does today") -- no code change was made for
+# this shape, this case only pins down that it was not accidentally broken
+# by the events-shape hardening above.
+# ---------------------------------------------------------------------------
+run_case "machine_missing_state" "nonzero" '
+cat <<JSON
+[
+  {"id":"w1","name":"jarvisforge-worker","config":{"metadata":{"fly_process_group":"worker"}},"checks":[],"events":[]}
+]
+JSON
+' "NONE in state 'started'"
+
+# ---------------------------------------------------------------------------
+# Case 10: a real, sanitized snapshot captured from a live authenticated
+# `flyctl machine list -a jarvisforge -j` (flyctl v0.4.83, 2026-08-14) --
+# see docs/ops-smoke-test.md for how to re-capture this. Real machine IDs,
+# private IPs, instance IDs and image digests are stripped; the field
+# NAMES, TYPES and event ordering are exactly what flyctl returned. One
+# worker machine was mid-deploy-cycle "stopped", the other "started" with
+# no exit event -- smoke_deploy.sh must call this SERVING, proving the
+# T-32 hardening does not false-alarm on real, legitimate payloads.
+# ---------------------------------------------------------------------------
+run_case "live_shape_snapshot" "zero" '
+cat <<JSON
+[
+  {"id":"w-sanitized-1","name":"jarvisforge-worker","state":"stopped","config":{"metadata":{"fly_process_group":"worker"}},"checks":null,"events":[{"type":"update","status":"stopped","source":"flyd","timestamp":1786732219279},{"type":"launch","status":"created","source":"user","timestamp":1786732209227},{"type":"launch","status":"pending","source":"flyd","timestamp":1786732209146}]},
+  {"id":"w-sanitized-2","name":"jarvisforge-worker","state":"started","config":{"metadata":{"fly_process_group":"worker"}},"checks":null,"events":[{"type":"start","status":"started","source":"flyd","timestamp":1786732221086},{"type":"launch","status":"created","source":"user","timestamp":1786732209225},{"type":"launch","status":"pending","source":"flyd","timestamp":1786732209101}]},
+  {"id":"web-sanitized-1","name":"jarvisforge-web","state":"started","config":{"metadata":{"fly_process_group":"web"}},"checks":[{"name":"servicecheck-00-http-8080","status":"passing","output":"{\"status\":\"ok\"}","updated_at":"2026-08-14T18:30:50.875Z"}],"events":[{"type":"start","status":"started","source":"flyd","timestamp":1786732246625},{"type":"launch","status":"created","source":"user","timestamp":1786732234966},{"type":"launch","status":"pending","source":"flyd","timestamp":1786732234840}]},
+  {"id":"web-sanitized-2","name":"jarvisforge-web","state":"started","config":{"metadata":{"fly_process_group":"web"}},"checks":[{"name":"servicecheck-00-http-8080","status":"passing","output":"{\"status\":\"ok\"}","updated_at":"2026-08-14T18:30:26.75Z"}],"events":[{"type":"start","status":"started","source":"flyd","timestamp":1786732222418},{"type":"launch","status":"created","source":"user","timestamp":1786732209182},{"type":"launch","status":"pending","source":"flyd","timestamp":1786732209052}]}
+]
+JSON
+' "confirmed SERVING"
+
+# ---------------------------------------------------------------------------
+# Case 11 (OPTIONAL, not committed): a fresh local capture from whoever
+# next runs `flyctl auth login` and follows the one-step instruction in
+# docs/ops-smoke-test.md. Only runs if that file exists; it is gitignored
+# (matches the repo's existing `*.local` pattern) so it never becomes a
+# tracked, possibly-stale artifact between real captures. Its true health
+# verdict is whatever production actually was at capture time, which this
+# harness cannot know in advance, so the exit code is NOT asserted
+# ("any") -- what IS asserted is that a real payload never falls through to
+# the generic crash-derived "no parseable verdict" catch-all, which would
+# mean an unanticipated real-world shape reached the parser undetected:
+# exactly the regression class T-32 closes.
+# ---------------------------------------------------------------------------
+LIVE_FIXTURE="${SMOKE_LIVE_FIXTURE:-${REPO_ROOT}/scripts/tests/fixtures/live_flyctl_machine_list.json.local}"
+if [ -f "$LIVE_FIXTURE" ]; then
+    run_case "live_fixture_local" "any" "cat '${LIVE_FIXTURE}'" "" "no parseable verdict"
+else
+    printf 'INFO: no local live fixture at %s -- skipping optional live-shape case (see docs/ops-smoke-test.md to capture one).\n' "$LIVE_FIXTURE"
+fi
 
 printf '\n'
 if [ "$FAILURES" -eq 0 ]; then
