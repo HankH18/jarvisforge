@@ -388,3 +388,4 @@ so the gate is reading the worse copy of the same receipt and reporting UNVERIFI
 **Not fixed by this session** — un-ignoring receipts is a plan-level change and the protocol
 forbids me editing the plan. No code was changed for this finding.
 
+- [2026-08-15T23:15:26Z] T-10 released by cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef: close verify failed; log at /tmp/failed_T-10.log
