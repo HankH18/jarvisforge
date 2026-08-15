@@ -202,6 +202,12 @@ def mint_token(sub: str) -> str:
 async def fetch_livekit_token(client: httpx.AsyncClient, bearer: str) -> dict:
     resp = await client.post(
         f"{BASE_URL}/api/token",
+        # Both fields are deliberately ignored by an authenticated /api/token:
+        # identity comes from the verified Clerk claim, and since the P0 room-authz
+        # fix the room is derived server-side per user. Each of the N identities
+        # therefore lands in its OWN room, not the shared ROOM passed here — the
+        # pass criterion is "N successful connects", which does not depend on the
+        # room. ROOM still matters for the anonymous (Clerk-unconfigured) path.
         json={"identity": "ignored-client-supplied-identity", "room": ROOM},
         headers={"Authorization": f"Bearer {bearer}"},
         timeout=15,

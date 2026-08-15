@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 
 import jwt as pyjwt
 import pytest
@@ -250,3 +251,155 @@ def test_verify_clerk_session_token_accepts_a_correctly_signed_token(
 
     identity = verify_clerk_session_token(token, options=options)
     assert identity.user_id == clerk_user_id
+
+
+# ---------------------------------------------------------------------------
+# P0 SECURITY FIX: room MEMBERSHIP, not just token identity.
+#
+# Before this fix, /api/token verified WHO you are but issued room_join +
+# publish + subscribe grants for WHATEVER `req.room` a caller supplied --
+# any two authenticated users could name the same room string and both
+# receive full grants for it, no matter who "owns" it. That is a
+# cross-tenant transcript/audio leak and breaks T-10's whole
+# membership/isolation story.
+#
+# Fix: in authenticated mode the server derives the room name itself from
+# the VERIFIED identity (HMAC-keyed on LIVEKIT_API_SECRET) and never reads
+# `req.room` at all -- symmetric with how `req.identity` was already
+# ignored. These tests must fail against the pre-fix endpoint (proven via
+# RED-before/GREEN-after in the fix's report) and must keep passing after.
+# ---------------------------------------------------------------------------
+
+
+def _mint_user(signing_key: RSAKeyPair) -> tuple[str, str]:
+    """A fresh (user_id, valid bearer token) pair for a distinct user."""
+    user_id = f"user_{uuid.uuid4().hex}"
+    return user_id, mint_clerk_token(signing_key=signing_key, sub=user_id)
+
+
+def test_authenticated_user_b_cannot_obtain_a_grant_for_user_as_room(
+    client, app_env, clerk_signing_key: RSAKeyPair
+):
+    """User A joins/creates a room (server picks it -- see the room-
+    derivation tests below for how). User B, a SEPARATE, legitimately
+    authenticated user who merely knows or guesses A's room name, asks
+    /api/token for that same room. B must NOT receive a token granting
+    room_join/publish/subscribe for A's room -- the whole point of this
+    fix. B still gets 200 (B is a valid user, just not a member of A's
+    room) but the room in B's grant must differ from A's.
+    """
+    user_a, token_a = _mint_user(clerk_signing_key)
+    user_b, token_b = _mint_user(clerk_signing_key)
+
+    resp_a = client.post(
+        "/api/token",
+        json={"identity": user_a, "room": None},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert resp_a.status_code == 200
+    room_a = pyjwt.decode(
+        resp_a.json()["token"], app_env["livekit_api_secret"], algorithms=["HS256"]
+    )["video"]["room"]
+
+    # B explicitly asks for A's room by name -- the attack this fix closes.
+    resp_b = client.post(
+        "/api/token",
+        json={"identity": user_b, "room": room_a},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert resp_b.status_code == 200
+    room_b = pyjwt.decode(
+        resp_b.json()["token"], app_env["livekit_api_secret"], algorithms=["HS256"]
+    )["video"]["room"]
+
+    assert room_b != room_a, (
+        "user B obtained a LiveKit grant for user A's room just by naming it -- "
+        "cross-tenant room membership is NOT enforced"
+    )
+
+
+def test_authenticated_room_ignores_client_supplied_room_entirely(
+    client, clerk_signing_key: RSAKeyPair
+):
+    """Same identity, two different client-supplied `room` values (including
+    None): the granted room must be identical both times -- proof the
+    server never consults `req.room` once authenticated, it always derives
+    the room itself.
+    """
+    user_id, token = _mint_user(clerk_signing_key)
+
+    resp_1 = client.post(
+        "/api/token",
+        json={"identity": user_id, "room": "attacker-chosen-room"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp_2 = client.post(
+        "/api/token",
+        json={"identity": user_id, "room": None},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp_1.status_code == 200
+    assert resp_2.status_code == 200
+
+    room_1 = pyjwt.decode(resp_1.json()["token"], options={"verify_signature": False})["video"][
+        "room"
+    ]
+    room_2 = pyjwt.decode(resp_2.json()["token"], options={"verify_signature": False})["video"][
+        "room"
+    ]
+    assert room_1 == room_2, "client-supplied `room` changed the grant -- it must be ignored"
+
+
+def test_authenticated_room_is_stable_for_the_same_user_across_requests(
+    client, clerk_signing_key: RSAKeyPair
+):
+    """Reconnecting (refresh, a second tab/device) must land the same user
+    back in the SAME private room, not a fresh random one each time --
+    otherwise a signed-in user could never rejoin their own in-progress
+    session.
+    """
+    user_id = f"user_{uuid.uuid4().hex}"
+    token_1 = mint_clerk_token(signing_key=clerk_signing_key, sub=user_id)
+    token_2 = mint_clerk_token(signing_key=clerk_signing_key, sub=user_id)
+
+    resp_1 = client.post(
+        "/api/token",
+        json={"identity": user_id, "room": None},
+        headers={"Authorization": f"Bearer {token_1}"},
+    )
+    resp_2 = client.post(
+        "/api/token",
+        json={"identity": user_id, "room": None},
+        headers={"Authorization": f"Bearer {token_2}"},
+    )
+
+    room_1 = pyjwt.decode(resp_1.json()["token"], options={"verify_signature": False})["video"][
+        "room"
+    ]
+    room_2 = pyjwt.decode(resp_2.json()["token"], options={"verify_signature": False})["video"][
+        "room"
+    ]
+    assert room_1 == room_2
+
+
+def test_authenticated_room_survives_malformed_or_absent_client_room(
+    client, clerk_signing_key: RSAKeyPair
+):
+    """Absent, empty, or bizarre `room` values must never error and must
+    all resolve to the same server-derived room for a given identity --
+    there is no client-controlled room path left to be malformed.
+    """
+    user_id, token = _mint_user(clerk_signing_key)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    variants = [None, "", "   ", "../../etc/passwd", "a" * 5000, "🙂/weird unicode room"]
+    rooms = set()
+    for room in variants:
+        resp = client.post(
+            "/api/token", json={"identity": user_id, "room": room}, headers=headers
+        )
+        assert resp.status_code == 200, f"room={room!r} unexpectedly failed: {resp.text}"
+        claims = pyjwt.decode(resp.json()["token"], options={"verify_signature": False})
+        rooms.add(claims["video"]["room"])
+
+    assert len(rooms) == 1, f"malformed/absent room values produced different grants: {rooms}"

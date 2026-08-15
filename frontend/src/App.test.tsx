@@ -2,6 +2,25 @@ import { describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
 import { createFakeSession, fakeFetchToken } from "./test/fakes";
+import type { AuthState } from "./auth/useClerkAuth";
+
+/** A signed-in AuthState double. The room-name field is only ever a UX
+ * affordance -- the actual authorization boundary is server-side
+ * (backend jarvis.server.app, P0 fix: authenticated-mode room is derived
+ * from the verified identity, `req.room` is never read) -- but a
+ * signed-in user should not be shown a free-text room field that quietly
+ * does nothing, hence the assertions below.
+ */
+function fakeSignedInAuth(): AuthState {
+  return {
+    status: "signed-in",
+    userLabel: "person@example.com",
+    getToken: async () => "fake-clerk-session-token",
+    signOut: async () => {},
+    mountSignIn: () => {},
+    unmountSignIn: () => {},
+  };
+}
 
 describe("App", () => {
   it("joins a room, renders live agent state and transcript, then leaves", async () => {
@@ -94,5 +113,46 @@ describe("App", () => {
     });
     expect(screen.getByRole("button", { name: "Join room" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Leave room" })).not.toBeInTheDocument();
+  });
+
+  it("hides the free-form room field when signed in and never sends a client-chosen room", async () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok-signed-in", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signed-in" }}
+        auth={{ useAuth: fakeSignedInAuth }}
+      />,
+    );
+
+    // The room text field is gone entirely for a signed-in user -- typing
+    // into it would be a false affordance, since the server ignores it.
+    expect(
+      screen.queryByRole("textbox", { name: "Room name (optional)" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("room-note-signed-in")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+    });
+
+    // No room in the request at all -- there was never a field to put one
+    // in, so there is nothing for an attacker to steer client-side either.
+    expect(tokenFn.calls).toEqual([{ identity: "web-signed-in", room: null }]);
+  });
+
+  it("still shows the free-form room field when signed out (anonymous/dev mode unaffected)", () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-anon" }} />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Room name (optional)" })).toBeInTheDocument();
+    expect(screen.queryByTestId("room-note-signed-in")).not.toBeInTheDocument();
   });
 });

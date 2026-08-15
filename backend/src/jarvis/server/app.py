@@ -30,10 +30,26 @@ backend/tests/multiuser/test_auth_jwt.py::
 test_client_cannot_force_anonymous_mode_via_request). The wire shape
 (request/response JSON) is unchanged in both modes -- pinned -- only the
 Authorization header is new, and it only matters in authenticated mode.
+
+P0 SECURITY FIX (post-T-10): authorize room MEMBERSHIP, not just identity.
+Originally (and still, in anonymous mode) this endpoint issued room_join +
+publish + subscribe grants for whatever ``req.room`` the caller supplied.
+In authenticated mode that was a cross-tenant leak: any two signed-in
+users who happened to know/guess the same room string both got full
+grants for it, regardless of who "owns" it. Fixed the same way identity
+was already hardened -- in authenticated mode ``req.room`` is now never
+read either; ``_room_for_authenticated_identity`` below derives the room
+name itself from the VERIFIED identity, so there is no client input left
+that can steer which room a token is minted for. See that function's
+docstring for why this is a stateless (HMAC) derivation rather than a new
+rooms table, and backend/tests/multiuser/test_auth_jwt.py's "P0 SECURITY
+FIX" section for the adversarial coverage.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import uuid
@@ -92,22 +108,51 @@ class TokenResponse(BaseModel):
     url: str
 
 
+def _room_for_authenticated_identity(user_id: str) -> str:
+    """Authenticated-mode room name -- P0 fix for the room-membership leak.
+
+    Deterministic, unguessable, and derived ONLY from the verified Clerk
+    identity; never from anything client-supplied. HMAC-keyed on
+    ``LIVEKIT_API_SECRET`` (not a bare hash) so nobody -- not even someone
+    who knows a target's Clerk ``user_id`` and reads this source -- can
+    compute their room name without also holding a secret only the server
+    has. Deterministic per user (not random per request) so the same user
+    reconnecting -- a page refresh, a second tab/device -- rejoins the
+    SAME private room instead of losing it.
+
+    Deliberately stateless: no rooms table, no new schema/infra. The room
+    name is fully reconstructible from (identity, server secret) alone, so
+    there is nothing to store and nothing that can drift out of sync with
+    who's actually allowed in -- membership IS the derivation.
+    """
+    api_secret = os.environ["LIVEKIT_API_SECRET"]
+    mac = hmac.new(api_secret.encode("utf-8"), user_id.encode("utf-8"), hashlib.sha256)
+    return f"user-{mac.hexdigest()[:24]}"
+
+
 @app.post("/api/token", response_model=TokenResponse)
 def create_token(
     req: TokenRequest,
     identity: ClerkIdentity | None = Depends(resolve_identity),  # noqa: B008 - FastAPI's own idiom
 ) -> TokenResponse:
-    # Authenticated mode (Clerk configured): `identity` is the verified
-    # Clerk `sub` -- req.identity is deliberately never read, so a client
-    # cannot impersonate another user's mem0 namespace via the request
-    # body no matter what it puts in "identity". resolve_identity already
-    # 401'd before this line for anything but a verified token.
-    #
-    # Anonymous mode (Clerk not configured, e.g. the current Fly
-    # deployment): `identity` is None and this falls back to req.identity
-    # -- T-1's original, pre-T-10 contract, unchanged.
-    user_identity = identity.user_id if identity is not None else req.identity
-    room = req.room or f"jarvis-{uuid.uuid4().hex[:8]}"
+    if identity is not None:
+        # Authenticated mode (Clerk configured): identity AND room both
+        # come from the verified Clerk token / its server-side derivation.
+        # req.identity is deliberately never read (a client cannot
+        # impersonate another user's mem0 namespace), and -- P0 fix --
+        # req.room is deliberately never read either (a client cannot
+        # obtain grants for another user's room just by naming it).
+        # resolve_identity already 401'd before this line for anything
+        # but a verified token.
+        user_identity = identity.user_id
+        room = _room_for_authenticated_identity(user_identity)
+    else:
+        # Anonymous mode (Clerk not configured, e.g. the current Fly
+        # deployment): falls back to req.identity/req.room -- T-1's
+        # original, pre-T-10 contract, unchanged. This mode has no
+        # concept of separate tenants to isolate rooms between.
+        user_identity = req.identity
+        room = req.room or f"jarvis-{uuid.uuid4().hex[:8]}"
 
     grants = VideoGrants(room_join=True, room=room, can_publish=True, can_subscribe=True)
     token = (

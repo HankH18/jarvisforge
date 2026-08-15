@@ -58,6 +58,13 @@ export default function App(props?: {
 
   const isConnected = session.status === 'connected'
   const isConnecting = session.status === 'connecting'
+  // P0 fix follow-up: once signed in, the server ignores any client-
+  // supplied room entirely and always mints a token for the caller's own
+  // server-derived room (backend jarvis.server.app._room_for_authenticated_
+  // identity) -- so a free-text room field would be a false affordance
+  // that silently does nothing. Hide it rather than let a signed-in user
+  // believe typing a room name controls where they land.
+  const isSignedIn = auth.status === 'signed-in'
 
   const handleJoin = () => {
     const trimmed = roomName.trim()
@@ -84,7 +91,13 @@ export default function App(props?: {
           </p>
         )}
 
-        {!isConnected && (
+        {!isConnected && isSignedIn && (
+          <p className="app__room" data-testid="room-note-signed-in">
+            Signed in — you&apos;ll join your own private room.
+          </p>
+        )}
+
+        {!isConnected && !isSignedIn && (
           <div className="app__room">
             <label htmlFor="room-name" className="app__room-label">
               Room name (optional)
