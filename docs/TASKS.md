@@ -96,7 +96,7 @@
 - **Depends on**: T-9 · **parallel_safe**: false
 - **Non-goals**: No arbitrary-repo writes; no auto-merge; no retry queues
 
-### T-12: Bonus: passive mode wakes on 'Jarvis' with zero upstream audio while passive  `[queue]`
+### T-12: Bonus: passive mode wakes on 'Jarvis' with zero upstream audio while passive  `[resolved]`
 - **Objective**: Porcupine Web SDK with built-in 'Jarvis' keyword; passive/active client state machine; mic audio published to LiveKit only in active state (R11).
 - **Acceptance**: 1) State machine unit tests: passive -> wake event -> active -> session end -> passive 2) Track-publish gating tested: no LiveKit audio track published while passive 3) Passive mode is an explicit user toggle, default off
 - **Verify**: `cd frontend && npm run -s test -- --run`
