@@ -19,8 +19,18 @@ dist/
 # --- macOS ---
 .DS_Store
 
-# --- Hook-generated verify receipts ---
-.claude/evidence/
+# --- Verify receipts: TRACKED, deliberately ---
+# These were ignored from the T-0 skeleton commit onward, as "hook-generated
+# verify receipts" -- i.e. build artifacts. That stopped being true once
+# harness-protocol.md made ticket status DERIVED from them ("receipt in
+# .claude/evidence/ = resolved"). Ignored receipts mean status is derived from
+# one laptop's filesystem: a fresh clone, CI, or a reviewer sees zero receipts
+# and reads every ticket as unstarted, and verify_submission.sh's freshness
+# gate fails on their machine for reasons that have nothing to do with the
+# code. The asymmetry was the giveaway -- .claude/evidence-v1/ was tracked all
+# along, so the OLD receipts shipped and the new ones did not.
+# Decision 2026-08-15: track them. Cost accepted: receipts churn on every close
+# and can conflict across parallel worktrees.
 
 # --- Submission build artifact (T-13) ---
 # submission/build_zip.sh regenerates this from scratch, and
