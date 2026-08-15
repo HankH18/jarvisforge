@@ -66,16 +66,21 @@
 #     (deny, not allow) expectations. See section "PROTECTED overrides an
 #     in-scope declaration" below.
 #
-# KNOWN, DOCUMENTED, OPEN DEFECT -- guard is inert with no claim:
+# AN UNCLAIMED SESSION IS UNCONSTRAINED, AND THAT IS SPECIFIED BEHAVIOR:
 # harness_lib.py's `guard` subcommand: `c = session_claim(sid); if not c:
 # print("allow")` (comment: "non-owning sessions are unconstrained (jarvis
-# T-21)"). A session that holds NO claim at all is not merely permitted to
-# touch its own ticket's files -- it is permitted to touch ANYTHING (short
-# of the hardcoded PROTECTED list). The case below labeled "KNOWN DEFECT"
-# asserts the CORRECT behavior (an out-of-scope write with no claim active
-# should be denied, or at minimum not silently allowed) and is EXPECTED TO
-# FAIL against the current guard. It is left failing on purpose -- do not
-# weaken it to get a green suite. See T-20's report to Hank for detail.
+# T-21)"). A session that holds NO claim is permitted to touch anything
+# short of the hardcoded PROTECTED list.
+#
+# This suite briefly asserted the opposite and shipped two deliberately
+# red cases calling it a defect. Hank ruled on 2026-08-15 that T-21's
+# acceptance text governs -- unclaimed sessions are unconstrained by
+# design, which is what lets an observer or watchdog session function --
+# and harness-protocol.md now states that plainly instead of describing
+# scope as universally enforced. The full reasoning, including why this
+# was never T-20's question in the first place, is at the two cases
+# themselves near the end of this file. Whether to constrain every
+# in-repo session by default is revisited after submission.
 #
 # Usage: bash scripts/tests/run_scope_guard_tests.sh
 
@@ -318,15 +323,38 @@ assert_allow "restoring docs/tickets.json: T-9601's in-scope write is ALLOWED ag
 # not c: print("allow")` (comment: "non-owning sessions are unconstrained
 # (jarvis T-21)") -- so an unclaimed session may write ANYWHERE except the
 # hardcoded PROTECTED list, including paths that plainly belong to another
-# ticket's declared scope. These two cases assert the CORRECT behavior (an
-# out-of-scope write with no claim should be denied, or at minimum not
-# silently allowed) and are EXPECTED TO FAIL against the current guard.
-# LEFT FAILING ON PURPOSE -- do not weaken these to force green.
+# ticket's declared scope.
+#
+# THESE TWO CASES ASSERT ALLOW, AND THAT IS DELIBERATE. They previously
+# asserted deny and were left failing as an executable defect report. That
+# was wrong on two counts, both resolved by Hank on 2026-08-15:
+#
+#   1. It is not T-20's question. T-20's acceptance is about Bash-mediated
+#      writes, the docs/ blanket exemption, regex anchoring, and paths
+#      outside CLAUDE_PROJECT_DIR. Nothing in it concerns unclaimed
+#      sessions. Failing T-20's verify on a T-21 question meant T-20 could
+#      never close for a reason unrelated to T-20.
+#   2. The plan contradicted itself, so "correct behavior" was not
+#      knowable from it. T-21's objective calls "with no claim at all it
+#      permits everything" a problem; T-21's acceptance 2 and 3 then
+#      REQUIRE that permissiveness, and acceptance 4 asserts safety only
+#      "for a session that does hold work".
+#
+# Hank's ruling: the acceptance text governs. An unclaimed session is
+# unconstrained by design -- it is what lets an observer or watchdog
+# session work at all -- and harness-protocol.md now says so in those
+# words rather than describing scope as universally enforced. Revisiting
+# this (constraining every in-repo session by default, with an explicit
+# observer exemption) is deferred until after submission.
+#
+# So these assert the behavior the plan actually specifies. If a future
+# change makes an unclaimed session denied, these two go red, which is the
+# correct alarm: it would mean the harness stopped matching the protocol.
 # ===========================================================================
 clear_claim "$SID_NONE"
-assert_deny "KNOWN DEFECT (guard inert without a claim): an arbitrary out-of-scope write with no claim active should be DENIED, not silently allowed" \
+assert_allow "unclaimed session: an arbitrary out-of-scope write is ALLOWED -- unclaimed sessions are unconstrained by design (T-21 acceptance 2/3; see harness-protocol.md 'Scope enforcement')" \
   "$SID_NONE" "${SANDBOX}/randomdir/randomfile.txt"
-assert_deny "KNOWN DEFECT (guard inert without a claim): a write into another ticket's declared scope (areaB, owned by T-9602) with no claim active should be DENIED, not silently allowed" \
+assert_allow "unclaimed session: a write into another ticket's declared scope (areaB, owned by T-9602) is ALLOWED -- scope binds the OWNING session only (T-21 acceptance 3)" \
   "$SID_NONE" "${SANDBOX}/areaB/nested/anything.py"
 
 echo
