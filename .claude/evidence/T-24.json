@@ -1,0 +1,9 @@
+{
+ "ticket": "T-24",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "cd backend && uv run pytest -q && uv run ruff check src && cd ../frontend && npm run -s test -- --run",
+ "commit": "496452012e4556edd391d72513f740f05d09477f",
+ "fingerprint": "69a62ebeb1831f92f1f3c8b23f7e254995babf42f9514e2c38be2aaa1c84ac9c",
+ "attempts": 0,
+ "ts": 1786835265
+}
