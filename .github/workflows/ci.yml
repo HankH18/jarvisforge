@@ -48,6 +48,44 @@ jobs:
       - name: Test
         run: cd backend && uv run pytest -q
 
+  # Satisfies acceptance #5 of T-20 ("a test script exercises the hook
+  # directly ... and runs in CI") and the first half of T-21's #5. Before
+  # this job existed, NO workflow referenced anything under scripts/tests/,
+  # so all four suites were verify-only: they ran when a ticket closed on
+  # someone's laptop and never again.
+  #
+  # Needs `fetch-depth: 0`. The evidence suite builds sandbox repos and the
+  # staleness gate walks history to attribute a stale fingerprint to a
+  # commit; a depth-1 checkout makes that attribution silently wrong.
+  #
+  # run_claim_tests.sh is DELIBERATELY NOT LISTED. It is 36/38, and one of
+  # the two failures is a real gap it found: session_claim() in
+  # harness_lib.py has no try/except around its json.load, so a CORRUPTED
+  # claim record crashes hook-stop with exit 1 and empty stdout, which the
+  # Stop-hook contract reads as "do not block" -- a session with a broken
+  # claim can stop without finishing. scope's guard() has that try/except;
+  # stop's path does not. harness_lib.py is PROTECTED, so no agent can fix
+  # it. Add run_claim_tests.sh to this list once that lands; leaving it out
+  # is a known, deliberate coverage gap, recorded here rather than silent.
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Evidence receipts (T-22/T-34)
+        run: bash scripts/tests/run_evidence_tests.sh
+
+      - name: Scope guard (T-20)
+        run: bash scripts/tests/run_scope_guard_tests.sh
+
+      - name: verify_submission DB wiring (T-31)
+        run: bash scripts/tests/run_require_db_wiring_tests.sh
+
+      - name: smoke_deploy exit codes
+        run: bash scripts/tests/run_smoke_exit_code_tests.sh
+
   frontend:
     runs-on: ubuntu-latest
     steps:

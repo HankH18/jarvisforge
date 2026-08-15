@@ -1,5 +1,35 @@
 # Latency report: time-to-first-audio
 
+## VERDICT (2026-08-15): R1 is NOT met. The miss is accepted and documented.
+
+**Deployed p95 time-to-first-audio on a no-lookup turn is 1122 ms. R1's target is
+< 800 ms. The gap is ~322 ms and no remaining configuration lever closes it.**
+
+Every lever was measured, not estimated, and each one is written up below:
+
+| lever | result |
+|---|---|
+| preemptive TTS on/off | indistinguishable at n=8 — **not** the cause |
+| deploy to Fly `iad` (closer to the APIs) | −90 ms median, **0 ms on the tail** |
+| `sonic-turbo` instead of `sonic-3` | −105 ms p95 — real, still ~217 ms short |
+| Anthropic prompt caching | inapplicable: 986-token prefix vs Haiku 4.5's 4096 minimum |
+| a cheaper/faster Cartesia tier (`sonic-lite`) | not entitled on this account (HTTP 400) |
+| STT endpointing | already at `endpointing_ms=25`, `no_delay=True` |
+
+The tail is the serial chain — STT endpoint detection, then LLM first token, then TTS
+first byte — decomposed further down this document. It is not network, which is why
+moving the worker into the same region as the APIs bought nothing at p95.
+
+Closing it would take an architectural change, not a setting: speaking filler audio on
+no-lookup turns to cover the gap, which trades a real latency number for a masked one and
+changes how the product feels. **Decision 2026-08-15: do not mask it. Ship the honest
+measurement.** A well-instrumented miss with every lever ruled out by evidence is a better
+artifact than a number achieved by talking over the delay.
+
+If R1 is revisited, the untried directions are architectural: streaming the LLM's first
+sentence into TTS before the full response completes, or a smaller/faster first-token model
+for the opening clause only.
+
 ## 2026-08-15 — `sonic-turbo` vs `sonic-3`: worth ~105 ms of p95, does NOT reach R1
 
 The open question was whether a faster Cartesia model ("Sonic Lightning / Superfast")
