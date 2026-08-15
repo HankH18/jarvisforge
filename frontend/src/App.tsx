@@ -71,12 +71,49 @@ export default function App(props?: {
     void session.join(trimmed === '' ? null : trimmed)
   }
 
+  // P1 fix: sign-out must tear down the live LiveKit session -- leave the
+  // room, stop publishing the mic -- as part of signing out, not leave it
+  // running until the connection happens to drop on its own. This matters
+  // more since the P0 fix made rooms private per authenticated user: a
+  // session that outlives sign-out on a shared device is a *private* room
+  // still open under the identity that just logged out.
+  //
+  // Ordering: session.leave() first, auth.signOut() second. By the time
+  // auth flips to signed-out (the security-irrelevant but user-visible
+  // state), the room is already torn down -- there's no window where the
+  // header shows "signed out" while the mic is still hot. Reversing the
+  // order would open exactly that window during the awaited signOut() call.
+  //
+  // Robustness: each step is wrapped separately so a failure in either
+  // can never block or skip the other. session.leave() already never
+  // rejects (useJarvisSession swallows the underlying disconnect()
+  // failure), but the try/catch here is defensive against that changing --
+  // a stuck/rejecting teardown must not strand the user signed in. Symmetrically,
+  // if auth.signOut() itself rejects, the session has already been fully
+  // torn down (leave() runs to completion either way, never partially), so
+  // there is no half-torn-down state left behind by a failed sign-out --
+  // only a user who, per Clerk, never got signed out. This whole function
+  // must never reject: it's invoked with `void` below, following the same
+  // convention as toggleMic.
+  const handleSignOut = async () => {
+    try {
+      await session.leave()
+    } catch (err) {
+      console.error('[jarvis] session teardown before sign-out failed', err)
+    }
+    try {
+      await auth.signOut()
+    } catch (err) {
+      console.error('[jarvis] auth.signOut() failed', err)
+    }
+  }
+
   return (
     <div className="app">
       <header className="app__header">
         <h1 className="app__title">Jarvis</h1>
         <p className="app__tagline">A calm voice console for your agent.</p>
-        <SignInPanel auth={auth} />
+        <SignInPanel auth={auth} onSignOut={() => void handleSignOut()} />
       </header>
 
       <main className="app__main">

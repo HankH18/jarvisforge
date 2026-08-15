@@ -155,4 +155,145 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "Room name (optional)" })).toBeInTheDocument();
     expect(screen.queryByTestId("room-note-signed-in")).not.toBeInTheDocument();
   });
+
+  describe("sign-out tears down the live session (P1: shared-device fix)", () => {
+    /** A signed-in AuthState double whose signOut records into a shared
+     * `order` array (so a test can assert it happened *after* session
+     * teardown), and can optionally be made to reject to prove a failed
+     * sign-out still doesn't strand the app in a half-torn-down state. */
+    function fakeSignedInAuthWithTracking(order: string[], opts?: { signOutError?: unknown }) {
+      return function useAuth(): AuthState {
+        return {
+          status: "signed-in",
+          userLabel: "person@example.com",
+          getToken: async () => "fake-clerk-session-token",
+          signOut: async () => {
+            order.push("auth.signOut");
+            if (opts?.signOutError !== undefined) throw opts.signOutError;
+          },
+          mountSignIn: () => {},
+          unmountSignIn: () => {},
+        };
+      };
+    }
+
+    it("signing out while connected leaves the LiveKit room before completing sign-out", async () => {
+      const order: string[] = [];
+      const session = createFakeSession();
+      const originalDisconnect = session.disconnect;
+      session.disconnect = async () => {
+        order.push("session.disconnect");
+        await originalDisconnect();
+      };
+      const tokenFn = fakeFetchToken({ token: "tok-signout", url: "wss://jarvis.test/rtc" });
+
+      render(
+        <App
+          session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signout" }}
+          auth={{ useAuth: fakeSignedInAuthWithTracking(order) }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+      await waitFor(() => {
+        expect(order).toEqual(["session.disconnect", "auth.signOut"]);
+      });
+      expect(session.disconnectCalls).toBe(1);
+    });
+
+    it("signing out while never connected is a harmless no-op: still signs out, never touches the session", async () => {
+      const order: string[] = [];
+      const session = createFakeSession();
+      const originalDisconnect = session.disconnect;
+      session.disconnect = async () => {
+        order.push("session.disconnect");
+        await originalDisconnect();
+      };
+      const tokenFn = fakeFetchToken({ token: "tok-signout-idle", url: "wss://jarvis.test/rtc" });
+
+      render(
+        <App
+          session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signout-idle" }}
+          auth={{ useAuth: fakeSignedInAuthWithTracking(order) }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+      await waitFor(() => {
+        expect(order).toEqual(["auth.signOut"]);
+      });
+      expect(session.disconnectCalls).toBe(0);
+    });
+
+    it("a session teardown failure on sign-out still completes the sign-out (does not strand the user signed in)", async () => {
+      const order: string[] = [];
+      const session = createFakeSession();
+      session.disconnect = async () => {
+        order.push("session.disconnect");
+        throw new Error("livekit disconnect boom");
+      };
+      const tokenFn = fakeFetchToken({ token: "tok-signout-fail", url: "wss://jarvis.test/rtc" });
+
+      render(
+        <App
+          session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signout-fail" }}
+          auth={{ useAuth: fakeSignedInAuthWithTracking(order) }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+      // auth.signOut() must still run even though teardown blew up -- a
+      // rejecting/failed teardown must never strand the user signed in.
+      await waitFor(() => {
+        expect(order).toEqual(["session.disconnect", "auth.signOut"]);
+      });
+    });
+
+    it("an auth.signOut() failure does not throw / produce an unhandled rejection", async () => {
+      const order: string[] = [];
+      const session = createFakeSession();
+      const originalDisconnect = session.disconnect;
+      session.disconnect = async () => {
+        order.push("session.disconnect");
+        await originalDisconnect();
+      };
+      const tokenFn = fakeFetchToken({ token: "tok-signout-autherr", url: "wss://jarvis.test/rtc" });
+
+      render(
+        <App
+          session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signout-autherr" }}
+          auth={{
+            useAuth: fakeSignedInAuthWithTracking(order, { signOutError: new Error("clerk signOut boom") }),
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+      });
+
+      // Clicking must not throw synchronously, and vitest's own unhandled-
+      // rejection detection would fail this test if the click handler's
+      // promise chain rejected without being caught somewhere.
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+      await waitFor(() => {
+        expect(order).toEqual(["session.disconnect", "auth.signOut"]);
+      });
+    });
+  });
 });
