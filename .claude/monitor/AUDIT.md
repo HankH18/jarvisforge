@@ -212,3 +212,76 @@ Now mostly MATCH — newly minted receipts are stable. Residual: T-30–T-33 `SC
 (later tickets genuinely edited real files inside their broad `docs/**`/`scripts/**` globs) and
 T-34 `BOOKKEEPING` (`docs/TASKS.md` only). **Zero `CONTENT` drift across all 29** — no tampering
 signal anywhere. Diagnostic: `python3 .claude/monitor/check_fingerprint_drift.py`.
+
+---
+
+## 2026-08-15 18:47 CDT — cycle 4 (watchdog P)
+
+**Ledger 30/35 resolved, 1 in progress, 4 queued** (T-13, T-19, T-20, T-21, T-28 outstanding).
+Tree clean but for heartbeat. Cycle 2's workflow is still in verify rounds (49 agents started,
+41 returned) — it is now auditing a tree that has moved well past what it was launched against,
+so I am treating its output as historical and verifying anything it returns against HEAD.
+
+### Two alarms I raised and then closed myself — neither is a defect
+
+1. **"Five receipts were deleted."** T-23, T-24, T-26, T-27 and T-34's receipts vanished and the
+   deletion was committed under `9bf51b2 ticket-start: T-10` — a ticket-start commit destroying
+   evidence is exactly the shape of a serious incident. It is not one. The reflog shows
+   `7b6388b evidence: re-mint the 5 BOOKKEEPING-drifted receipts under the META_ALLOW rule`:
+   they were deliberately deleted and re-minted so their fingerprints would match the patched
+   `fingerprint()`. That is the correct remediation for the grandfathering problem I raised in
+   cycle 3, done properly. **Not a finding.**
+
+2. **"They set `ALLOW_CARTESIA_SPEND=1` after I praised them for refusing to."** True, and it
+   deserves the opposite of criticism. `8f4f1bc` gives an explicit account rather than a quiet
+   receipt, and the argument is that the guard's premise ("cannot guarantee no code path makes
+   it speak") is a statement of ignorance, which they falsified before overriding.
+   **I verified all three checks independently at HEAD:** `session.start(agent=agent,
+   room=ctx.room)` carries no `generate_reply` and no join-time `say`; the only two `say()` call
+   sites (`tools_wiring.py:399`, `cadence_wiring.py:73`) both require a user turn; the smoke
+   client publishes no audio, so no turn is ever produced. Their case is in fact **stronger than
+   they claimed** — the filler gate plays pre-recorded clips, not synthesized TTS, so even if it
+   did fire it bills nothing. No deployment change was made. **Override justified.**
+   One soft spot worth naming: "the run confirmed it — no synthesis" is a deduction from the
+   no-turn argument, not a measurement at the provider. The deduction is sound, but nobody read
+   a Cartesia meter. If that argument ever stops holding, the override stops being justified.
+
+### Confirmed findings
+
+1. **`ci-suites-never-executed` (P1).** `867aa1f` wires all six harness suites into CI, and I
+   confirmed lines 77–92 of `ci.yml` invoke them. But `ci.yml` still triggers **`on:
+   pull_request` only**, and every commit in this build is landing directly on `master`. The
+   most recent Actions run is `18:28:18` on branch `ci-verification` — **ten minutes before the
+   suites were added**. So six suites are wired into a workflow that has not run since they were
+   wired. This is the *same* "reachable but unproven" trap the project already hit once with
+   `ci.yml`'s header comment, recurring one level up: the configuration is real, the execution
+   is assumed. Locally all six pass (verify-lint 19/19, evidence 35/35, scope guard 28/28,
+   claims 37/37, db wiring 2/2, smoke 10/10) — but local passing is what the earlier caveat
+   already promised, and it was not enough then either.
+
+2. **`circular-verify-pins` (P2).** `0b810c2` re-pins T-20, T-21 and T-28's verify strings at
+   `run_scope_guard_tests.sh`, `run_claim_tests.sh` and `run_verify_lint_tests.sh` — the very
+   suites authored in the same session. A receipt for "port the scope guard test suite" whose
+   verify is "run the ported suite" attests that the suite executes, not that the port is
+   faithful to the suite it replaced. This is the ordinary bootstrapping problem rather than
+   misconduct, but the receipts will read stronger than the evidence is, and the deleted
+   original suite is the only thing that could have cross-checked the port.
+
+### Credit where it is due — two things the build session got right
+
+- **It killed a false pass in its own test suite.** `run_claim_tests.sh` acceptance-5 used
+  `grep -rl 'run_claim_tests' .github/workflows/`, which matched a **comment in `ci.yml`
+  explaining why the suite was NOT wired in** — the case reported the acceptance met at the
+  exact moment it was not. It now anchors on an actual `run:` line. That is precisely the
+  "what is the green evidence OF" failure, found and fixed unprompted.
+- **A deliberately-red test drove a real plan fix.** The verify-lint suite shipped 18/19 with
+  one true failure: T-19's verify carried a self-neutering form. Rather than weaken the test,
+  they fixed `docs/tickets.json` (`0b810c2`). T-19/20/21/28 now all lint CLEAN and the suite is
+  19/19. Red test → real defect → plan repaired → green, in the right order.
+
+### Fingerprint drift
+
+14 of 30 receipts drifting, up from ~10 — every one `SCOPE-OVERLAP`, driven by this session's
+own doc writes (`LEDGER-PROVENANCE.md`, `TECHNICAL.md`, `latency-report.md`). **Zero `CONTENT`
+drift.** The count rising while nothing is wrong is itself the argument for the design change:
+a signal that grows noisier every time anyone writes a doc cannot be monitored.
