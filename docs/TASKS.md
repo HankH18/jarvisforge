@@ -72,7 +72,7 @@
 - **Depends on**: T-1 · **parallel_safe**: true
 - **Non-goals**: No auth UI (T-10), no wake word (T-12)
 
-### T-9: Deployed on Fly.io: web + worker live, smoke passing, MVP demo-able  `[queue]`
+### T-9: Deployed on Fly.io: web + worker live, smoke passing, MVP demo-able  `[resolved]`
 - **Objective**: Single Fly app, two process groups (web=FastAPI+static SPA, worker=agent); Fly Postgres attached; secrets set; smoke script green against the deployed URL; latency report from deployed instance meets R1.
 - **Acceptance**: 1) fly.toml defines web + worker process groups; backend Dockerfile builds 2) scripts/smoke_deploy.sh: health endpoint 200, token endpoint returns valid shape, worker registered 3) scripts/latency_report.py over >=50 deployed turns shows p95 <= 800ms (R1) - report committed as docs/latency-report.md
 - **Verify**: `bash scripts/smoke_deploy.sh`
