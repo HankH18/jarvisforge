@@ -16,8 +16,9 @@ import json
 import os
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # backend/evals/run.py -> parents[1] == backend/. Resolved from __file__, not
 # cwd (pinned in the T-7 contract). Must happen before any `jarvis` import.
@@ -40,6 +41,8 @@ if _DOTENV.is_file():
 from evals.scoring import (  # noqa: E402
     CaseOutcome,
     GoldenCase,
+    approval_hash_problem,
+    golden_content_sha256,
     load_golden,
     load_meta,
     missing_approval_fields,
@@ -60,6 +63,21 @@ _DRAFT_BANNER = (
     "_meta.approved_by/approved_at is missing or blank. This result is NOT "
     "EVIDENCE of grounding. Do not cite it to close T-7 or any gate that "
     "depends on it. ***"
+)
+
+# T-29: approved_by/approved_at (above) prove a human's NAME and DATE are
+# recorded -- not that their review covers the CURRENT bytes of the golden
+# set. This is the remedy printed when _meta.approved_sha256 is missing or
+# does not match golden_content_sha256(args.golden): run the helper, have a
+# human confirm the content, paste the value themselves. No code path here
+# ever writes approved_sha256 into golden.jsonl (T-25's no-signing non-goal
+# carried forward).
+_HASH_REMEDY = (
+    "run `uv run python -m evals.print_approval_hash --golden <path>` to print "
+    "the current canonical content hash, have a human REVIEW the content and "
+    "confirm it's what they mean to approve, then paste the printed value into "
+    "golden.jsonl's _meta.approved_sha256 by hand -- no agent may write this "
+    "field (see backend/evals/README.md)."
 )
 
 
@@ -173,9 +191,58 @@ def _summarize(
     return exit_code, summary
 
 
-def _write_json_report(path: Path, outcomes: list[CaseOutcome], summary: dict) -> None:
+def _build_provenance(args: argparse.Namespace, model: str, meta: dict[str, Any] | None) -> dict:
+    """Runtime-only provenance for a committed JSON report (T-33 follow-up):
+    what actually ran, never hardcoded.
+
+    `convo_model`/`tool_model` are read from the exact `jarvis.llm.routing`
+    functions the run itself uses -- not from re-reading env vars
+    independently -- so a value here can never silently drift from what
+    `evals.run` would actually resolve. Both are recorded regardless of
+    which one drove THIS run's cases (`model_used` is the one that did;
+    see run.py's module-level model resolution) because a reader needs to
+    know both the routed convo id and the routed tool-escalation id to
+    judge coverage, not just whichever one happened to be active.
+
+    `golden_approved_sha256`/`golden_content_sha256` bind the report to the
+    exact golden.jsonl bytes it scored (T-29): the approved hash comes
+    straight from the `_meta` header already loaded by `main()`, and the
+    content hash is recomputed via `evals.scoring.golden_content_sha256`
+    (imported, never reimplemented) so the two can be compared by a
+    checker that never has to touch golden.jsonl itself.
+    """
+    from jarvis.llm.routing import ModelRoutingError, convo_model, tool_model
+
+    def _resolve(fn):
+        try:
+            return fn()
+        except ModelRoutingError:
+            return None
+
+    approved_sha256 = None
+    if meta is not None:
+        raw = meta.get("approved_sha256")
+        if isinstance(raw, str) and raw.strip():
+            approved_sha256 = raw.strip().lower()
+
+    return {
+        "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "client": args.client,
+        "convo_model": _resolve(convo_model),
+        "tool_model": _resolve(tool_model),
+        "model_used": model,
+        "golden_path": str(args.golden),
+        "golden_approved_sha256": approved_sha256,
+        "golden_content_sha256": golden_content_sha256(args.golden),
+    }
+
+
+def _write_json_report(
+    path: Path, outcomes: list[CaseOutcome], summary: dict, provenance: dict
+) -> None:
     report = {
         "summary": summary,
+        "provenance": provenance,
         "cases": [
             {
                 "case_id": o.case_id,
@@ -278,6 +345,32 @@ def main(argv: list[str] | None = None) -> int:
             return 3
         draft = True
         print(_DRAFT_BANNER, file=sys.stderr)
+    else:
+        # T-29: approved_by/approved_at are present and non-blank -- now
+        # confirm that approval actually covers THIS content. Only reached
+        # on an otherwise-approved set (an unapproved set already exited or
+        # went to draft above); "unverifiable is never current", so a
+        # missing/malformed hash blocks exactly like a mismatch does.
+        hash_problem = approval_hash_problem(meta, args.golden)
+        if hash_problem == "missing":
+            print(
+                "error: golden set is APPROVED BY NAME but that approval is NOT "
+                "BOUND TO ITS CONTENT (T-29 -- SPEC R6a): _meta.approved_sha256 is "
+                f"missing, blank, or not a well-formed sha256 hex digest in "
+                f"{args.golden}. An approval that cannot be verified against the "
+                f"current bytes is not current -- {_HASH_REMEDY}",
+                file=sys.stderr,
+            )
+            return 4
+        if hash_problem == "mismatch":
+            print(
+                "error: golden set's content has CHANGED SINCE APPROVAL (T-29 -- "
+                f"SPEC R6a): _meta.approved_sha256 in {args.golden} does not match "
+                "the file's current content hash -- the 2026-08-14 (or later) "
+                f"human review no longer covers what is on disk -- {_HASH_REMEDY}",
+                file=sys.stderr,
+            )
+            return 4
 
     if args.client == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
         print(
@@ -328,7 +421,8 @@ def main(argv: list[str] | None = None) -> int:
     exit_code, summary = _summarize(outcomes, args, draft=draft)
 
     if args.json_out is not None:
-        _write_json_report(args.json_out, outcomes, summary)
+        provenance = _build_provenance(args, model, meta)
+        _write_json_report(args.json_out, outcomes, summary, provenance)
 
     if args.client == "echo":
         print(_SELFTEST_BANNER, file=sys.stderr)

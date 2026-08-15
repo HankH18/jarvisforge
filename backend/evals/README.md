@@ -57,3 +57,28 @@ a passing eval.
 Its `approved_by`/`approved_at` fields start `null` and must stay that way
 until Hank reviews the case set and fills them in. No agent may fill them
 in; doing so forges an approval that was never given.
+
+## Approval binds to content (T-29)
+
+`approved_by`/`approved_at` prove WHO approved the set and WHEN -- not that
+their review still covers what's currently on disk. `_meta.approved_sha256`
+closes that gap: it's a sha256 hash of the file's content (every line
+except `_meta` itself -- see `evals.scoring.canonical_approval_bytes` for
+the exact byte-for-byte definition). The gate (`evals/run.py`) refuses to
+run an otherwise-approved set whose `approved_sha256` is missing, malformed,
+or doesn't match the file's current content -- **unverifiable is never
+current**, so this fails exactly like a wrong hash would, with exit code 4
+and a remedy naming the fix.
+
+After a human reviews an edited golden set and updates `approved_by`/
+`approved_at`, mint the new hash and paste it in by hand:
+
+```
+cd backend
+uv run python -m evals.print_approval_hash --golden evals/golden.jsonl
+```
+
+This PRINTS ONLY -- it never writes `golden.jsonl` itself, same as
+`approved_by`/`approved_at` above: no agent may fill in `approved_sha256`
+either, since doing so would forge a binding between an approval and
+content nobody actually reviewed together.

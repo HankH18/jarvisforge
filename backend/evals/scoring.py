@@ -12,6 +12,7 @@ imported by `run.py` immediately after that happens. The one runtime
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,6 +146,124 @@ def missing_approval_fields(meta: dict[str, Any] | None) -> list[str]:
     return [
         key for key in ("approved_by", "approved_at") if not _is_real_approval_value(meta.get(key))
     ]
+
+
+# ---------------------------------------------------------------------------
+# T-29: bind approval to the bytes it approved.
+#
+# T-25 (`missing_approval_fields` above) proves a human's NAME and DATE are
+# recorded -- not that their review covers the golden set's CURRENT content.
+# Demonstrated live: T-19 added a case and tightened another's pins after the
+# 2026-08-13 approval, and `missing_approval_fields` stayed satisfied the
+# whole time because `approved_by`/`approved_at` were never touched. Every
+# gate that only checks those two fields is structurally blind to "the set
+# changed since a human looked at it".
+#
+# The fix: `_meta.approved_sha256` binds the approval to a canonical content
+# hash. `canonical_approval_bytes`/`golden_content_sha256` are the ONE
+# definition of that hash -- `evals/print_approval_hash.py` (the human-facing
+# helper) and `evals/run.py` (the gate) both call `golden_content_sha256`
+# directly, so they cannot drift apart by one computing it differently than
+# the other.
+# ---------------------------------------------------------------------------
+
+
+def canonical_approval_bytes(text: str) -> bytes:
+    """The exact bytes T-29's `approved_sha256` is a hash OF, given the full
+    text of a golden.jsonl file.
+
+    Canonicalization, precisely:
+    - Split `text` into lines with `str.splitlines()` (accepts `\\n` or
+      `\\r\\n` input; the line CONTENT itself, not the terminator, is what's
+      hashed, so re-saving the file with different line endings does not
+      change the hash).
+    - Each line is stripped of surrounding whitespace; blank lines are
+      dropped entirely -- this mirrors `load_golden`'s own blank-line skip,
+      so adding/removing a purely blank line never changes the hash.
+    - Any line that JSON-parses to an object with `"id": "_meta"` (the same
+      test `load_golden`/`load_meta` use) is EXCLUDED -- the header carries
+      the approval itself (including `approved_sha256`), so it can never be
+      part of what the hash covers; a golden set with more than one such
+      line is a `load_meta` error before this function is ever reached in
+      the gate, so this function itself does not special-case duplicates.
+    - The remaining lines are kept VERBATIM (not re-serialized -- reordering
+      keys or changing a case's own JSON whitespace DOES change the hash,
+      because those are real bytes a human approved) in their original file
+      order, rejoined with a single `\\n` between each, plus exactly one
+      trailing `\\n` -- so the presence or absence of a trailing newline at
+      end-of-file never changes the hash.
+    - Encoded as UTF-8.
+
+    Raises `ValueError` (matching `load_golden`/`load_meta`'s error shape)
+    if any non-blank line is not valid JSON.
+    """
+    lines: list[str] = []
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"golden set line {lineno}: invalid JSON ({exc})") from exc
+        if isinstance(raw, dict) and raw.get("id") == "_meta":
+            continue
+        lines.append(line)
+    if not lines:
+        return b""
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def golden_content_sha256(path: str | Path) -> str:
+    """sha256 hex digest of `canonical_approval_bytes` for the file at
+    `path`. THE canonical hash `_meta.approved_sha256` binds to -- see
+    `canonical_approval_bytes` for the exact normalization. Both
+    `evals/print_approval_hash.py` and the gate in `evals/run.py` call this
+    exact function so they cannot compute it two different ways.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    return hashlib.sha256(canonical_approval_bytes(text)).hexdigest()
+
+
+def _is_well_formed_sha256_hex(value: Any) -> bool:
+    """True iff `value` is a `str` shaped like a sha256 hex digest (64
+    lowercase-or-uppercase hex characters). Mirrors `_is_real_approval_value`
+    in spirit: a value that isn't even shaped like a hash can never verify,
+    so it is unverifiable the same as an absent one -- no need to hash the
+    file just to reject `0`, `True`, `[]`, or a typo'd short string.
+    """
+    if not isinstance(value, str):
+        return False
+    candidate = value.strip()
+    return len(candidate) == 64 and all(c in "0123456789abcdefABCDEF" for c in candidate)
+
+
+def approval_hash_problem(meta: dict[str, Any] | None, golden_path: str | Path) -> str | None:
+    """Whether `meta["approved_sha256"]` actually verifies against
+    `golden_path`'s CURRENT content (T-29). Returns `None` when it does;
+    otherwise a short machine-stable reason:
+
+    - `"missing"` -- `meta` is `None`, the key is absent, or its value isn't
+      a well-formed sha256 hex digest (`_is_well_formed_sha256_hex`).
+      Per the acceptance text, "unverifiable is never current": an
+      otherwise-fully-approved set (valid `approved_by`/`approved_at`) with
+      no verifiable hash is treated exactly like a mismatch, not waved
+      through as some lesser problem.
+    - `"mismatch"` -- a well-formed hash is present but does not equal
+      `golden_content_sha256(golden_path)` -- the content changed (or was
+      never what this hash was minted for) since a human approved it.
+
+    Comparison is case-insensitive (a human may paste either case of hex).
+    Callers are expected to call this ONLY after confirming
+    `missing_approval_fields(meta) == []` -- this function does not itself
+    re-check `approved_by`/`approved_at`.
+    """
+    if meta is None or not _is_well_formed_sha256_hex(meta.get("approved_sha256")):
+        return "missing"
+    candidate = meta["approved_sha256"].strip().lower()
+    if candidate != golden_content_sha256(golden_path):
+        return "mismatch"
+    return None
 
 
 def _parse_case(raw: dict[str, Any]) -> GoldenCase:

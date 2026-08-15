@@ -27,6 +27,7 @@ ever writes synthetic fixtures under ``tmp_path``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -42,7 +43,7 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from evals import run  # noqa: E402
-from evals.scoring import missing_approval_fields  # noqa: E402
+from evals.scoring import canonical_approval_bytes, missing_approval_fields  # noqa: E402
 
 _REAL_GOLDEN_PATH = _BACKEND_ROOT / "evals" / "golden.jsonl"
 
@@ -77,6 +78,17 @@ _CASE_LINE = json.dumps(
     }
 )
 
+# T-29: `_write_golden` always writes exactly `_CASE_LINE` as the file's ONE
+# non-`_meta` line (see below), so its canonical content hash is fixed and
+# computable once, via the EXACT SAME function the gate calls
+# (`evals.scoring.canonical_approval_bytes` -- `golden_content_sha256` just
+# reads a file and feeds its text through this). Baking the correct hash
+# into `_base_meta()`'s default is what lets every EXISTING T-25 test below
+# keep passing UNMODIFIED now that the gate also requires a verifiable hash:
+# they all go through `_base_meta()`, so they all get one automatically,
+# scoped to content that's actually theirs.
+_CASE_LINE_SHA256 = hashlib.sha256(canonical_approval_bytes(_CASE_LINE + "\n")).hexdigest()
+
 
 def _base_meta(**overrides) -> dict:
     meta = {
@@ -85,6 +97,7 @@ def _base_meta(**overrides) -> dict:
         "spec_ref": "R6/R6a",
         "approved_by": "Test Reviewer",
         "approved_at": "2026-01-01",
+        "approved_sha256": _CASE_LINE_SHA256,
     }
     meta.update(overrides)
     return meta
@@ -640,3 +653,125 @@ def test_real_golden_jsonl_passes_the_gate_with_echo_client():
     assert "NOT APPROVED" not in err
     assert "DRAFT" not in out and "DRAFT" not in err
     assert "PASS:" in out or "FAIL:" in out, "must reach the normal scoring summary"
+
+
+def test_real_golden_jsonl_approved_sha256_matches_its_current_content():
+    """T-29: the real golden.jsonl's `_meta.approved_sha256` was minted for
+    its content at close time (a one-time, mechanical edit -- see
+    `evals/print_approval_hash.py`) and must still verify. If this fails,
+    either golden.jsonl's case content changed without a re-approval, or
+    the hash was pasted wrong -- either way that is exactly the T-19 defect
+    T-29 exists to catch, so this must never be "fixed" by editing the
+    hash without a human re-reviewing the content it now covers."""
+    from evals.scoring import approval_hash_problem, load_meta
+
+    meta = load_meta(_REAL_GOLDEN_PATH)
+    assert approval_hash_problem(meta, _REAL_GOLDEN_PATH) is None
+
+
+# ---------------------------------------------------------------------------
+# T-29: approval binds to the bytes it approved. `approved_by`/`approved_at`
+# (T-25, above) prove a human's NAME and DATE are recorded; these tests prove
+# the SEPARATE, additional axis -- that the recorded approval actually covers
+# the CURRENT content -- is enforced too: a golden set can be "approved" by
+# name while `approved_sha256` is missing, blank, malformed, or simply wrong
+# for what's on disk, and the gate must refuse all of those exactly like an
+# unverified approval, per the acceptance text ("unverifiable is never
+# current"), with a distinct exit code (4, never 3 -- that code is
+# `missing_approval_fields`'s alone) and remedy text naming the fix.
+# ---------------------------------------------------------------------------
+
+
+def test_approved_sha256_matching_content_runs_and_exits_zero(tmp_path):
+    """Direction 1 (match): a well-formed, CORRECT hash is a no-op -- the
+    run proceeds exactly as it did before T-29."""
+    golden = _write_golden(tmp_path, _base_meta())
+    code, out, err = _run(golden)
+    assert code == 0, f"a correct approved_sha256 must not block the run; stderr={err!r}"
+    assert "PASS:" in out
+    assert "T-29" not in err and "content" not in err.lower()
+
+
+@pytest.mark.parametrize(
+    "bad_hash",
+    [
+        pytest.param(None, id="null"),
+        pytest.param("", id="empty-string"),
+        pytest.param("   ", id="whitespace-only"),
+        pytest.param(0, id="int-zero"),
+        pytest.param(True, id="bool-true"),
+        pytest.param([], id="empty-list"),
+        pytest.param("not-a-hash", id="too-short-not-hex"),
+        pytest.param("a" * 63, id="one-char-short-of-64"),
+        pytest.param("g" * 64, id="64-chars-but-not-hex"),
+    ],
+)
+def test_missing_or_malformed_approved_sha256_blocks_an_otherwise_approved_set(
+    tmp_path, bad_hash
+):
+    """Direction 2 (missing): every shape that isn't a well-formed sha256
+    hex digest is UNVERIFIABLE, and unverifiable is never current -- this
+    must block exactly like a wrong hash would, distinctly from the T-25
+    approved_by/approved_at gate (exit 3), and print no per-case output."""
+    golden = _write_golden(tmp_path, _base_meta(approved_sha256=bad_hash))
+    code, out, err = _run(golden)
+    assert code == 4, f"missing/malformed approved_sha256 must exit 4; got {code}, stderr={err!r}"
+    assert code != 3, "must not be conflated with the approved_by/approved_at gate"
+    assert "NOT APPROVED" not in err, "this is a distinct failure from T-25's gate"
+    assert "approved_sha256" in err
+    assert "print_approval_hash" in err, "remedy must name the helper"
+    assert out == "", "the gate should refuse before printing any per-case output"
+
+
+def test_approved_sha256_key_entirely_absent_blocks(tmp_path):
+    """The "no key at all" hole, mirroring T-25's own `del meta["approved_by"]`
+    coverage: approved_by/approved_at present and valid, but
+    `approved_sha256` was simply never added to `_meta`."""
+    meta = _base_meta()
+    del meta["approved_sha256"]
+    golden = _write_golden(tmp_path, meta)
+    code, out, err = _run(golden)
+    assert code == 4
+    assert "approved_sha256" in err
+    assert out == ""
+
+
+def test_approved_sha256_wrong_but_well_formed_hash_blocks_as_mismatch(tmp_path):
+    """Direction 2 (mismatch): a well-formed sha256 hex digest that simply
+    isn't THIS content's hash -- e.g. copied from a previous approval and
+    never updated after an edit, the exact T-19 failure mode this ticket
+    exists to close."""
+    wrong_but_well_formed = hashlib.sha256(b"not the approved content").hexdigest()
+    golden = _write_golden(tmp_path, _base_meta(approved_sha256=wrong_but_well_formed))
+    code, out, err = _run(golden)
+    assert code == 4
+    assert code != 3
+    assert "NOT APPROVED" not in err
+    assert "CHANGED SINCE APPROVAL" in err or "does not match" in err
+    assert "print_approval_hash" in err
+    assert out == ""
+
+
+def test_approved_sha256_mismatch_is_case_insensitive_on_the_correct_value(tmp_path):
+    """Uppercase hex is still a MATCH (a human may paste either case) -- this
+    is not a mismatch case, it proves the comparison itself is
+    case-insensitive rather than accidentally over-strict."""
+    golden = _write_golden(tmp_path, _base_meta(approved_sha256=_CASE_LINE_SHA256.upper()))
+    code, out, err = _run(golden)
+    assert code == 0, f"uppercase hex of the correct hash must still verify; stderr={err!r}"
+    assert "PASS:" in out
+
+
+def test_missing_hash_check_is_not_reached_when_approved_by_at_are_already_bad(tmp_path):
+    """The hash check only fires on an OTHERWISE-approved set (acceptance 1's
+    own wording) -- when approved_by/approved_at are already missing, the
+    T-25 gate (exit 3) must still be what blocks, not a hash complaint,
+    even though this synthetic file also happens to have no
+    approved_sha256 at all."""
+    meta = _base_meta(approved_by=None)
+    del meta["approved_sha256"]
+    golden = _write_golden(tmp_path, meta)
+    code, out, err = _run(golden)
+    assert code == 3
+    assert "NOT APPROVED" in err
+    assert "approved_sha256" not in err

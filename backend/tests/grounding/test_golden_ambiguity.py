@@ -31,18 +31,27 @@ because of their names, and a verifier demonstrated the false exemption
 that invites: a record with an unrelated `number` and an unrelated `url`
 that merely happen to share digits gets waved through with no relationship
 between their actual values. The exemption now additionally requires that
-the `number` field's own value appear in the `url` field's own value AS ITS
-OWN URL PATH SEGMENT (bounded by `/` or the string's start/end) -- e.g.
-`10829` in `.../pull/10829`, matching how GitHub actually structures PR/
-issue URLs. A coincidental digit run inside an unrelated segment (e.g. `42`
-buried inside `.../repo42/issues/999`, where the real identifier is `999`)
-does NOT count -- `42` there is not its own path segment, so it is NOT
-exempted, and any other same-record, cross-field collision is flagged too.
+the `number` field's own value equal the `url` field's own value's
+IDENTIFYING path segment -- the LAST path segment (ignoring a trailing
+slash, query string, or fragment) -- e.g. `10829` in `.../pull/10829`,
+matching how GitHub actually structures PR/issue URLs.
+
+T-29 (verifier finding): an EARLIER version of this exemption accepted the
+number as ANY `/`-bounded path segment of the url, not specifically its
+LAST/identifying one. That is too broad in a different way than the
+name-only bug above: `number=42` against a url like
+`.../orgs/42/repo/pull/999` would wrongly exempt the pair, because `42`
+does occur as its own bounded segment (an org id) even though the url's
+actual identifying segment -- its PR number -- is `999`, a different value
+entirely. Requiring the number to equal the LAST segment specifically
+closes this: `10829` in `.../pull/10829` (its own last segment) is still
+exempted, but `42` in `.../orgs/42/repo/pull/999` (last segment `999`) is
+not, and neither is `42` buried inside an unrelated segment like
+`.../repo42/issues/999` (last segment `999` there too).
 """
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -68,15 +77,22 @@ _ALIASED_FIELD_PAIRS: frozenset[frozenset[str]] = frozenset({frozenset({"number"
 
 
 def _identifier_restated_in_url(number_value: str, url_value: str) -> bool:
-    """True iff ``number_value`` appears in ``url_value`` as its OWN path
-    segment -- bounded by ``/`` or the string's start/end -- e.g. ``10829``
-    in ``https://github.com/.../pull/10829``. A bare substring check is NOT
-    enough: ``42`` is a substring of ``.../repo42/issues/999`` too, but it
-    is not restating the same identifier there (``999`` is), so that must
-    NOT count as the same fact.
+    """True iff ``number_value`` equals ``url_value``'s IDENTIFYING path
+    segment -- the LAST path segment, ignoring a trailing slash and any
+    query string (``?...``) or fragment (``#...``) -- e.g. ``10829`` in
+    ``https://github.com/.../pull/10829``.
+
+    A bare substring check is NOT enough: ``42`` is a substring of
+    ``.../repo42/issues/999`` too, but the identifying segment there is
+    ``999``, so that must NOT count as the same fact. Neither is matching
+    ANY ``/``-bounded segment enough (T-29, verifier finding): ``42`` is
+    its own bounded segment in ``.../orgs/42/repo/pull/999``, but it is an
+    unrelated org id, not the url's actual identifier (``999``) -- only the
+    LAST segment identifies a GitHub PR/issue, so only that one counts.
     """
-    pattern = r"(?:^|/)" + re.escape(number_value) + r"(?:$|/)"
-    return re.search(pattern, url_value) is not None
+    path = url_value.split("?", 1)[0].split("#", 1)[0]
+    last_segment = path.rstrip("/").rsplit("/", 1)[-1]
+    return last_segment == number_value
 
 
 def _leaf_matches(
@@ -303,5 +319,55 @@ def test_ambiguity_detector_does_not_wrongly_exempt_unrelated_number_and_url() -
     assert "42" in problems, (
         "detector wrongly exempted a number/url pair by NAME alone, with no "
         "value relationship between them"
+    )
+    assert len(problems["42"]) > 1
+
+
+def test_ambiguity_detector_requires_the_identifying_segment_not_any_segment() -> None:
+    """T-29 (verifier finding): the number must equal the url's IDENTIFYING
+    (last) path segment, not merely occur as ANY `/`-bounded segment
+    somewhere in the url. Here `number` is 42, which DOES occur as its own
+    bounded segment (an unrelated org id) in
+    `.../orgs/42/repo/pull/999` -- an earlier version of this exemption
+    (matching any bounded segment) wrongly waved this through. The url's
+    actual identifying segment is `999`, a completely different value, so
+    this is a genuine cross-field collision and must be flagged.
+
+    This test fails red against the old any-segment rule -- confirmed by
+    temporarily reverting `_identifier_restated_in_url` to the old
+    `re.search(r"(?:^|/)" + re.escape(number_value) + r"(?:$|/)", url_value)`
+    check and observing this assertion fail, before restoring the fix.
+    """
+    case = GoldenCase(
+        id="SYNTHETIC-NUMBER-MATCHES-NON-IDENTIFYING-SEGMENT",
+        query="synthetic",
+        kind="grounded",
+        expect="answer",
+        fixtures=[
+            {
+                "source": "synthetic:test",
+                "data": {
+                    "record": {
+                        "number": 42,
+                        "url": "https://example.com/orgs/42/repo/pull/999",
+                    }
+                },
+                "error": None,
+            }
+        ],
+        prefs=[],
+        must_include=["42"],
+        must_not_include=[],
+        note=(
+            "synthetic: number matches a non-identifying (org-id) url segment, "
+            "not the url's actual identifying (last) segment -- must still be "
+            "flagged, not exempted by the number/url alias"
+        ),
+    )
+    problems = _ambiguous_pins(case)
+    assert "42" in problems, (
+        "detector wrongly exempted a number/url pair where the number matched "
+        "a non-identifying path segment instead of the url's actual "
+        "identifying (last) segment"
     )
     assert len(problems["42"]) > 1
