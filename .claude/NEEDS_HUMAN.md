@@ -346,3 +346,45 @@ agent-executable fix. And the `duplicate-livekit-identity` item last recorded as
 "HALF-DONE — DO NOT SHIP YET" is **resolved at HEAD** — the mem0 namespace is per-user
 again via `stable_identity_key`. Backend 519 passed / ruff clean, frontend 105 passed /
 lint clean.
+
+---
+
+## P1 — Ticket status is machine-local: every receipt is gitignored (2026-08-15, agent session cced6b0e)
+
+**Found while** trying to `git rm` the legacy `.pass` receipts. The command failed with
+`pathspec '.claude/evidence/T-0.pass' did not match any files` — because nothing in
+`.claude/evidence/` is tracked. `.gitignore:23` ignores the whole directory, under the
+heading "Hook-generated verify receipts". That line dates to `7aafee0`, the T-0 skeleton
+commit, so it was an original and deliberate decision: receipts are build artifacts.
+
+**Why it is now a contradiction.** Everything built since assumes the opposite:
+
+- `harness-protocol.md` says status "is never stored anywhere — it is derived: receipt in
+  `.claude/evidence/` = resolved". If receipts are gitignored, status is derived from
+  *this laptop's* filesystem, not from the repo. A fresh clone, another machine, CI, or a
+  reviewer sees **zero** receipts and therefore every ticket queued.
+- `scripts/verify_submission.sh` gates submission on receipt freshness (stage 1/6). On a
+  reviewer's clone that stage now reports all 35 tickets MISSING and fails — not because
+  anything is wrong, but because the evidence was never shipped.
+- The asymmetry looks accidental: `.claude/evidence-v1/` **is** tracked (26 receipts). The
+  ignore rule names `.claude/evidence/` specifically, so the v1 directory escaped it,
+  presumably created by a copy/mv. So the OLD receipts are in the repo and the NEW ones
+  are not — the exact opposite of what anyone would choose.
+
+**This is a decision, not a patch, which is why it is here.** Both directions are real:
+
+- *Track receipts* — status becomes reproducible from a clone and the submission gate means
+  something to a reviewer. Cost: receipts churn on every close, conflict on parallel
+  worktrees, and a receipt in git is a claim a reviewer may reasonably read as attested.
+- *Keep them ignored* — accept that ticket status is a local build cache, and stop implying
+  otherwise. Then `verify_submission.sh` must not gate on receipt presence for anyone but
+  the build machine, and `harness-protocol.md`'s "derived" language needs rewording.
+
+Related, and probably the same decision: the receipt migration story already open below —
+the fingerprinted `evidence-v1/*.pass` copies are strictly richer than the bare-epoch
+`evidence/*.pass` ones the gate actually reads (`sha=` + `ts=` + `fp=` vs a lone integer),
+so the gate is reading the worse copy of the same receipt and reporting UNVERIFIABLE.
+
+**Not fixed by this session** — un-ignoring receipts is a plan-level change and the protocol
+forbids me editing the plan. No code was changed for this finding.
+
