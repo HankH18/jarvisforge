@@ -6,10 +6,23 @@ name: CI
 # (https://github.com/HankH18/jarvisforge, private) and `gitlab`
 # (the actual Gauntlet AI submission target, self-hosted at
 # labs.gauntletai.com — see CLAUDE.md). A pull request opened against the
-# `github` remote will run this workflow. As of this writing no PR has
-# actually been opened, so this workflow is reachable but unproven — it
-# has not been observed to execute or pass in GitHub Actions itself, only
-# verified by running every step's command locally.
+# `github` remote runs this workflow.
+#
+# PROVEN 2026-08-15. PR #1 was the first pull request this repo ever had.
+# Its first run FAILED in 4s: `Unable to resolve action
+# astral-sh/setup-uv@v10, unable to find version v10` — that action ships
+# releases v10.0.0/v10.0.1 but its moving major tag stops at v7, so the
+# backend job could never have run on any commit. The pin had survived
+# unnoticed precisely because nothing had ever executed it. Fixed to
+# @v10.0.1 (and checkout/setup-node v4 → v5 for the Node-20 deprecation).
+# Re-run 31901208728: SUCCESS in 48s, both jobs real — backend
+# "503 passed, 13 skipped" + ruff clean, frontend 16 files / 105 tests +
+# build.
+#
+# NOTE the 503+13, not the 516 seen locally: the 13 skipped are the memory
+# suite, because CI has no Postgres. T-31's banner says so loudly in the
+# log. The DB-required gate is scripts/verify_submission.sh, by design —
+# so a green CI here does NOT mean the memory path was verified.
 #
 # The local gate story changed too: the `cc-factory: harness sync` commit
 # deleted `.claude/hooks/verify_gate.sh` along with the hook test scripts

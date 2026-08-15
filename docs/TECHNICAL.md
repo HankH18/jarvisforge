@@ -280,18 +280,30 @@ copies are guarded against drifting apart by
 instance of a broader pattern in this project: work can be built and unit
 tested while never actually being connected to what ships.
 
-**CI is reachable but unproven.** `.github/workflows/ci.yml` runs a
-`backend` job (lint + unit tests) and a `frontend` job (lint, build, unit
-tests) on `pull_request`. The repo now has a `github` remote
-(https://github.com/HankH18/jarvisforge) in addition to the `gitlab`
-submission remote (self-hosted, not GitHub — see `CLAUDE.md`), so a PR
-opened against the `github` remote will actually run this workflow; as of
-this writing no PR has been opened, so it has not been observed to execute
-in GitHub Actions itself — only every step's command run and confirmed
-passing locally. The local gate story also changed: the `cc-factory:
-harness sync` deleted `.claude/hooks/verify_gate.sh`, so there is no
-longer a single local regression-gate script run at every ticket boundary
-(see `docs/HARNESS-BLOCKER-2026-08-14.md`).
+**CI runs, and is proven green — as of 2026-08-15.**
+`.github/workflows/ci.yml` runs a `backend` job (lint + unit tests) and a
+`frontend` job (lint, build, unit tests) on `pull_request`, against the
+`github` remote (https://github.com/HankH18/jarvisforge; the `gitlab`
+submission remote is self-hosted, not GitHub — see `CLAUDE.md`).
+
+PR #1 was the first pull request this repo ever had, and its first run
+**failed in 4 seconds**: `astral-sh/setup-uv@v10` does not resolve — that
+action ships releases `v10.0.0`/`v10.0.1` but its moving major tag stops
+at `v7`, so the backend job could never have run on any commit. The pin
+survived unnoticed precisely because nothing had ever executed it. Fixed
+to `@v10.0.1`; `actions/checkout` and `actions/setup-node` bumped v4 → v5.
+Re-run `31901208728`: **success in 48s**, both jobs real — backend
+`503 passed, 13 skipped` plus `All checks passed!` (ruff), frontend
+`16 files / 105 tests` plus build.
+
+Note the `503 passed, 13 skipped`, against 516 locally: the 13 skipped are
+the memory suite, because CI has no Postgres, and T-31's banner says so
+loudly in the CI log. The database-required gate is
+`scripts/verify_submission.sh`, by design — **so a green CI here does not
+mean the memory path was verified.** The local gate story also changed:
+the `cc-factory: harness sync` deleted `.claude/hooks/verify_gate.sh`, so
+there is no longer a single local regression-gate script run at every
+ticket boundary (see `docs/HARNESS-BLOCKER-2026-08-14.md`).
 
 **Evidence staleness.** `scripts/check_evidence_staleness.sh` (T-22) can
 only detect staleness for tickets whose `.claude/evidence/*.pass` receipt
