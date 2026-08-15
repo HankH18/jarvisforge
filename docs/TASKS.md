@@ -8,7 +8,7 @@
 - **Depends on**: none · **parallel_safe**: false
 - **Non-goals**: No app logic; no provider SDK calls; no Docker/Fly config
 
-### T-1: Voice loop works end-to-end: STT -> LLM -> TTS on LiveKit with state events  `[queue]`
+### T-1: Voice loop works end-to-end: STT -> LLM -> TTS on LiveKit with state events  `[resolved]`
 - **Objective**: LiveKit Agents worker joins a room, streams Deepgram STT in, a single fast model replies, Cartesia TTS streams out; FastAPI token endpoint; agent_state and transcript data-channel events per DESIGN.
 - **Acceptance**: 1) Worker registers with LiveKit and completes a synthetic audio turn in tests with mocked STT/TTS providers 2) POST /api/token returns a valid LiveKit token per the pinned request/response shape 3) agent_state transitions listening->thinking->speaking emitted on the data channel 4) TTS provider selected by env var; Cartesia default, Aura-2 fallback both wired 5) Per-turn latency JSONL logging in place (turn_end_ts, first_audio_ts)
 - **Verify**: `cd backend && uv run pytest tests/pipeline -q && uv run ruff check src`
