@@ -1,5 +1,50 @@
 # Latency report: time-to-first-audio
 
+## 2026-08-15 — `sonic-turbo` vs `sonic-3`: worth ~105 ms of p95, does NOT reach R1
+
+The open question was whether a faster Cartesia model ("Sonic Lightning / Superfast")
+could get us under the R1 threshold. Measured, so no longer a guess.
+
+Method: run from INSIDE the deployed Fly container (`flyctl ssh`, region `iad`), so the
+network leg is production's, not a laptop's. `POST /tts/bytes`, stopwatch stopped on the
+**first audio byte** (`read(1)`), 12 requests per model rotating three real utterances from
+the chat corpus, voice `e2ab5462` (Audrey).
+
+| model | median | p95 | min | max |
+|---|---|---|---|---|
+| `sonic-3` (current default) | 162 ms | 270 ms | 120 ms | 287 ms |
+| `sonic-turbo` | 146 ms | **165 ms** | 114 ms | 260 ms |
+
+`sonic-turbo` is **+16 ms median, +105 ms p95** faster. The median barely moves; the win is
+in the tail, which is the half that matters for an R1 target expressed as p95.
+
+**But it is not enough, and this is the number that decides it.** Deployed end-to-end p95 is
+1122 ms against a 800 ms target — a 322 ms gap. Even crediting `sonic-turbo` with its full
+105 ms (generous: percentiles do not subtract like that, since the end-to-end tail is not
+guaranteed to be the same requests as the TTS tail), p95 lands near 1017 ms. Still ~217 ms
+over. **Switching TTS models does not achieve R1.**
+
+So this is a real but partial lever, and it costs voice quality — `sonic-turbo` is the
+faster/lighter tier, and the demo's voice is a product decision, not a latency decision.
+That tradeoff is not worth making unilaterally for a change that does not cross the
+threshold, so the deployed default is left at `sonic-3`.
+
+No code change is needed to take it — `$CARTESIA_TTS_MODEL` already overrides the pin
+(`providers.py`). To try it, and to revert:
+
+```
+flyctl secrets set CARTESIA_TTS_MODEL=sonic-turbo -a jarvisforge   # try
+flyctl secrets unset CARTESIA_TTS_MODEL -a jarvisforge             # revert
+```
+
+Note `sonic-lite` is **not** available on this account — it returns HTTP 400. The model list
+in `providers.py`'s comment is the plugin's list, not an entitlement list.
+
+A caveat on the first probe, recorded because it nearly caused an overclaim: an n=3 run
+showed `sonic-3` at [127, 161, **414**] and `sonic-turbo` at [114, 115, 119], which looked
+like a ~300 ms tail win — almost exactly the size of the R1 gap. At n=12 the 414 ms did not
+recur and the real gap is 105 ms. Three samples cannot measure a tail.
+
 ## 2026-08-15 — DEPLOYED measurement. Deploying does not close the R1 gap.
 
 The section below ("FIRST REAL MEASUREMENT") was measured from a laptop, and closed with
