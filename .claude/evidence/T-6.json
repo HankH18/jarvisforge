@@ -1,0 +1,9 @@
+{
+ "ticket": "T-6",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "cd backend && uv run pytest tests/cadence -q",
+ "commit": "4aa406ecb945476eaaca34eb767d95dd62011bdd",
+ "fingerprint": "22767f0606fb7b2996fed5c223b2bb60fad86b9854c5c2afc675952cbcefe92f",
+ "attempts": 0,
+ "ts": 1786835525
+}
