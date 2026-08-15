@@ -120,7 +120,7 @@
 - **Depends on**: T-2, T-3, T-4, T-5 · **parallel_safe**: false
 - **Non-goals**: No new tools - wire the ones that already exist; No changes to the pinned ToolResult or synthesize_grounded contracts
 
-### T-15: Wire cadence into the voice agent: fillers, barge-in, stop phrase  `[queue]`
+### T-15: Wire cadence into the voice agent: fillers, barge-in, stop phrase  `[resolved]`
 - **Objective**: T-6 built backend/src/jarvis/cadence/ (FillerGate, TurnController, pre-synthesized Cartesia filler clips) with 69 passing tests, but nothing in backend/src/jarvis/pipeline/ imports it -- the same gap T-14 fixed for tools. R2 (spoken acknowledgment within 300ms when a lookup will take >500ms) and R4 (barge-in pauses playback, stop phrases cancel the turn) are unmet in the running product. Measured tool turns on the deployment take 1.6-14.4s, so the filler is what makes them bearable.
 - **Acceptance**: 1) A heavy/slow tool turn plays a pre-synthesized filler clip; a fast turn plays none 2) The agent_state wire vocabulary emits "working" while a heavy tool runs (events.py reserves it for exactly this) 3) User speech during playback pauses it (barge-in); a stop phrase cancels the turn 4) An integration test drives the real session wiring and asserts a filler was played on a slow turn and not on a fast one
 - **Verify**: `cd backend && uv run pytest tests/pipeline tests/cadence -q && uv run ruff check src`

@@ -1,0 +1,9 @@
+{
+ "ticket": "T-15",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "cd backend && uv run pytest tests/pipeline tests/cadence -q && uv run ruff check src",
+ "commit": "b1ae6894d677f9a4654d42a3ee0b687c0bc5ef9d",
+ "fingerprint": "ac45cac42a330ac1aba167be191b5b43d663f228180f18fbf54f6dab5664a1dc",
+ "attempts": 0,
+ "ts": 1786835683
+}
