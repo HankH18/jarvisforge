@@ -522,3 +522,43 @@ a reading off a meter.
 a false pass in its own test suite (a `grep` matching a comment that explained why the suite
 was *not* wired in), and let a deliberately-red test drive a real fix to `docs/tickets.json`
 rather than weakening the test. Both are the right instinct.
+
+---
+
+## P1 — a concurrent session ran `git checkout <sha>` on the shared tree and nearly stranded a close (2026-08-15)
+
+**Near-miss, caught and repaired, but it would have been silent.**
+
+While T-28's close was running its verify plus the full regression suite, another live
+session (`e88afeb6-cede-4470-9514-f5daf9a6619f`, interleaving in
+`.claude/monitor/heartbeat.jsonl`) ran a raw `git checkout <sha>` **in place** on this
+working tree, detaching HEAD immediately after `ticket-start: T-28` landed on master.
+
+The `ticket-close: T-28` and its evidence commit therefore landed on a **detached HEAD**,
+while `master` stayed one commit behind at `ea2bf44`. The close reported success. The
+receipt was minted. Nothing errored. A push at that moment would have shipped a master
+that did not contain the close it had just been told succeeded.
+
+It was caught only because the agent doing the closes ran `git status` before pushing,
+saw "HEAD detached from ea2bf44", confirmed the detached commits were a clean fast-forward
+descendant (`git merge-base --is-ancestor`), and re-pointed the branch with
+`git branch -f master HEAD` + `git symbolic-ref HEAD refs/heads/master` — no `reset --hard`,
+nothing discarded. Verified afterward: HEAD attached, local/github/gitlab all at `82fd9f8`,
+all four ticket-close commits reachable from master, and the only dangling objects in the
+repo are stale `git stash` snapshots from 2026-08-13/14, unrelated to this.
+
+**Why this needs you and not a patch.** This is the exact hazard the watchdog protocol
+already warns about — reproduce-at-a-sha must happen in a `git worktree`, never as an
+in-place checkout of the live tree. The rule exists; it was not followed. Two options:
+
+- **Enforce it.** A session that is not the claim owner has no business moving HEAD. The
+  stop/scope hooks could refuse, or `cmd_close` could assert `git symbolic-ref HEAD` still
+  resolves to `refs/heads/master` before minting a receipt — cheap, and it converts a
+  silent corruption into a loud failure.
+- **Accept it and document it**, on the understanding that any concurrent session can
+  invalidate an in-flight close without either side noticing.
+
+I lean strongly to the first, specifically the `cmd_close` assertion: a receipt that
+attests to a commit which is not on the branch is worse than no receipt. It lives in
+PROTECTED `harness_lib.py`, so it needs you.
+
