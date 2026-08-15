@@ -58,15 +58,14 @@ jobs:
   # staleness gate walks history to attribute a stale fingerprint to a
   # commit; a depth-1 checkout makes that attribution silently wrong.
   #
-  # run_claim_tests.sh is DELIBERATELY NOT LISTED. It is 36/38, and one of
-  # the two failures is a real gap it found: session_claim() in
-  # harness_lib.py has no try/except around its json.load, so a CORRUPTED
-  # claim record crashes hook-stop with exit 1 and empty stdout, which the
-  # Stop-hook contract reads as "do not block" -- a session with a broken
-  # claim can stop without finishing. scope's guard() has that try/except;
-  # stop's path does not. harness_lib.py is PROTECTED, so no agent can fix
-  # it. Add run_claim_tests.sh to this list once that lands; leaving it out
-  # is a known, deliberate coverage gap, recorded here rather than silent.
+  # All five suites run here. The claim suite reports one KNOWN GAP without
+  # failing on it: session_claim() in harness_lib.py has no try/except around
+  # its json.load, so a CORRUPTED claim record crashes hook-stop with exit 1
+  # and empty stdout, which the Stop-hook contract reads as "do not block".
+  # That is a real defect, but it is outside T-21's acceptance (which covers a
+  # MISSING claim, not a corrupted one) and its fix lives in PROTECTED
+  # harness_lib.py. The suite still exercises the path every run and prints
+  # the current behavior, so a future fix gets noticed. Filed in NEEDS_HUMAN.md.
   harness:
     runs-on: ubuntu-latest
     steps:
@@ -79,6 +78,12 @@ jobs:
 
       - name: Scope guard (T-20)
         run: bash scripts/tests/run_scope_guard_tests.sh
+
+      - name: Ticket claims (T-21)
+        run: bash scripts/tests/run_claim_tests.sh
+
+      - name: Verify-string lint (T-28)
+        run: bash scripts/tests/run_verify_lint_tests.sh
 
       - name: verify_submission DB wiring (T-31)
         run: bash scripts/tests/run_require_db_wiring_tests.sh

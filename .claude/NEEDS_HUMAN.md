@@ -469,3 +469,25 @@ and the honest one-line summary of the ledger is:
 I would rather you hear that from me than discover it from the graph.
 
 - [2026-08-15T23:26:59Z] T-10 released by cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef: close verify failed; log at /tmp/failed_T-10.log
+
+---
+
+## P2 — a CORRUPTED claim record lets a session stop silently (2026-08-15, session cced6b0e)
+
+Found by the T-21 claim suite. `guard()` wraps its `json.load` in a try/except;
+`session_claim()` does not. So a `.claude/claims/<sid>.json` that exists but is
+unparseable makes `hook-stop` crash with an uncaught traceback — exit 1, empty stdout —
+and the Stop-hook contract reads that as "do not block". A session whose own record
+shows unfinished work can therefore stop without finishing. The scope hook fails closed
+on the same input (safe); only the stop path fails open.
+
+Deliberately NOT asserted as a failure in `scripts/tests/run_claim_tests.sh`, because it
+is outside T-21's acceptance — acceptance 4 covers a MISSING claim, not a corrupted one —
+and asserting it there would have held T-21 open forever on a question T-21 does not ask.
+The suite still exercises the path on every run and prints the behavior as a `GAP:` line,
+so a future fix will be noticed immediately and the case can be promoted to a real
+assertion at that point.
+
+Fix belongs in `session_claim()` in PROTECTED `harness_lib.py`: on a JSON error, treat the
+claim as still held (fail closed) rather than absent.
+
