@@ -11,6 +11,8 @@ used and why that is not a mock). No test in this file needs Postgres.
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import uuid
 
@@ -538,3 +540,139 @@ def test_two_different_users_still_get_different_rooms_and_identities(
     assert claims_a["sub"] != claims_b["sub"]
     assert stable_identity_key(claims_a["sub"]) == user_a
     assert stable_identity_key(claims_b["sub"]) == user_b
+
+
+# ---------------------------------------------------------------------------
+# Room-salt independence: rotating LIVEKIT_API_SECRET must not silently
+# rename every user's room.
+#
+# The P0 fix above derives the room name via HMAC keyed on
+# LIVEKIT_API_SECRET. That closed the cross-tenant leak, but coupled the
+# room name to a credential that is expected to rotate as routine security
+# hygiene (and MUST rotate if it ever leaks). Rotating LIVEKIT_API_SECRET
+# alone -- no code change, no attacker involved -- silently renamed every
+# user's room, stranding any in-flight session.
+#
+# Fix: the room derivation now reads a DEDICATED secret, JARVIS_ROOM_SALT,
+# independent of the LiveKit API credential, falling back to
+# LIVEKIT_API_SECRET only when JARVIS_ROOM_SALT is unset (so existing
+# deployments keep their current room names on upgrade -- see
+# test_unset_room_salt_reproduces_the_pre_salt_derivation_exactly below).
+# See _room_for_authenticated_identity's docstring in jarvis/server/app.py
+# for the full rotation semantics.
+#
+# test_rotating_livekit_api_secret_does_not_move_the_room_when_salt_is_set
+# is the load-bearing one here: it FAILS against the unmodified (pre-salt)
+# endpoint -- proven RED-before/GREEN-after in the fix's report -- because
+# the unmodified code has no JARVIS_ROOM_SALT concept at all, so the room
+# always moves when LIVEKIT_API_SECRET changes.
+# ---------------------------------------------------------------------------
+
+
+def _room_from_token(token: str) -> str:
+    return pyjwt.decode(token, options={"verify_signature": False})["video"]["room"]
+
+
+def test_rotating_livekit_api_secret_does_not_move_the_room_when_salt_is_set(
+    client, monkeypatch, clerk_signing_key: RSAKeyPair
+):
+    """The whole point of JARVIS_ROOM_SALT: with it set, rotating
+    LIVEKIT_API_SECRET (routine credential hygiene, or a mandatory response
+    to a leak) must NOT rename the user's room and strand their in-flight
+    session. This must fail against the unmodified endpoint.
+    """
+    user_id, token = _mint_user(clerk_signing_key)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    monkeypatch.setenv("JARVIS_ROOM_SALT", "a-dedicated-room-salt-independent-of-livekit")
+
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "livekit-secret-before-rotation-pad-32-bytes")
+    resp_before = client.post(
+        "/api/token", json={"identity": user_id, "room": None}, headers=headers
+    )
+    assert resp_before.status_code == 200
+    room_before = _room_from_token(resp_before.json()["token"])
+
+    # Rotate the LiveKit credential -- e.g. because it leaked, or routine hygiene.
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "livekit-secret-AFTER-rotation-totally-different")
+    resp_after = client.post(
+        "/api/token", json={"identity": user_id, "room": None}, headers=headers
+    )
+    assert resp_after.status_code == 200
+    room_after = _room_from_token(resp_after.json()["token"])
+
+    assert room_before == room_after, (
+        "rotating LIVEKIT_API_SECRET changed the room even though JARVIS_ROOM_SALT is "
+        "set -- in-flight sessions would be stranded by routine credential rotation"
+    )
+
+
+def test_room_salt_determines_the_room_independently_of_livekit_secret(
+    client, monkeypatch, clerk_signing_key: RSAKeyPair
+):
+    """Same user + same salt -> same room. Same user + different salt ->
+    different room. Two different users, same salt -> still different
+    rooms (the P0 guarantee must hold under the new derivation too).
+    """
+    user_a, token_a = _mint_user(clerk_signing_key)
+    user_b, token_b = _mint_user(clerk_signing_key)
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    monkeypatch.setenv("JARVIS_ROOM_SALT", "salt-one-abc123")
+    resp_a1 = client.post(
+        "/api/token", json={"identity": user_a, "room": None}, headers=headers_a
+    )
+    resp_a2 = client.post(
+        "/api/token", json={"identity": user_a, "room": None}, headers=headers_a
+    )
+    resp_b1 = client.post(
+        "/api/token", json={"identity": user_b, "room": None}, headers=headers_b
+    )
+    assert resp_a1.status_code == resp_a2.status_code == resp_b1.status_code == 200
+    room_a1 = _room_from_token(resp_a1.json()["token"])
+    room_a2 = _room_from_token(resp_a2.json()["token"])
+    room_b1 = _room_from_token(resp_b1.json()["token"])
+
+    assert room_a1 == room_a2, "same user + same salt must derive the same room"
+    assert room_a1 != room_b1, "two different users, same salt, must still get different rooms"
+
+    monkeypatch.setenv("JARVIS_ROOM_SALT", "salt-two-totally-different-xyz789")
+    resp_a3 = client.post(
+        "/api/token", json={"identity": user_a, "room": None}, headers=headers_a
+    )
+    assert resp_a3.status_code == 200
+    room_a3 = _room_from_token(resp_a3.json()["token"])
+
+    assert room_a3 != room_a1, "same user + different salt must derive a different room"
+
+
+def test_unset_room_salt_reproduces_the_pre_salt_derivation_exactly(
+    client, app_env, monkeypatch, clerk_user_id: str, clerk_signing_key: RSAKeyPair
+):
+    """With JARVIS_ROOM_SALT unset (the upgrade path -- an existing
+    deployment that has not set the new var), the room name must be
+    byte-for-byte identical to the original HMAC-on-LIVEKIT_API_SECRET
+    derivation, computed independently here rather than merely asserting
+    "no crash".
+    """
+    monkeypatch.delenv("JARVIS_ROOM_SALT", raising=False)
+    token = mint_clerk_token(signing_key=clerk_signing_key, sub=clerk_user_id)
+    resp = client.post(
+        "/api/token",
+        json={"identity": clerk_user_id, "room": None},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    room = _room_from_token(resp.json()["token"])
+
+    expected_mac = hmac.new(
+        app_env["livekit_api_secret"].encode("utf-8"),
+        clerk_user_id.encode("utf-8"),
+        hashlib.sha256,
+    )
+    expected_room = f"user-{expected_mac.hexdigest()[:24]}"
+    assert room == expected_room, (
+        "unset JARVIS_ROOM_SALT must reproduce the exact pre-salt room derivation -- "
+        "an upgraded deployment must not silently rename every user's room"
+    )

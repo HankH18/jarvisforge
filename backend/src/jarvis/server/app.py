@@ -121,13 +121,13 @@ def _room_for_authenticated_identity(user_id: str) -> str:
     """Authenticated-mode room name -- P0 fix for the room-membership leak.
 
     Deterministic, unguessable, and derived ONLY from the verified Clerk
-    identity; never from anything client-supplied. HMAC-keyed on
-    ``LIVEKIT_API_SECRET`` (not a bare hash) so nobody -- not even someone
-    who knows a target's Clerk ``user_id`` and reads this source -- can
-    compute their room name without also holding a secret only the server
-    has. Deterministic per user (not random per request) so the same user
-    reconnecting -- a page refresh, a second tab/device -- lands in the
-    SAME private room every time.
+    identity; never from anything client-supplied. HMAC-keyed on a server
+    secret (not a bare hash) so nobody -- not even someone who knows a
+    target's Clerk ``user_id`` and reads this source -- can compute their
+    room name without also holding that secret. Deterministic per user
+    (not random per request) so the same user reconnecting -- a page
+    refresh, a second tab/device -- lands in the SAME private room every
+    time.
 
     CORRECTION (P1 fix): an earlier version of this docstring stopped
     there and implied that alone was enough for a second tab/device to
@@ -149,9 +149,28 @@ def _room_for_authenticated_identity(user_id: str) -> str:
     name is fully reconstructible from (identity, server secret) alone, so
     there is nothing to store and nothing that can drift out of sync with
     who's actually allowed in -- membership IS the derivation.
+
+    ROTATION SEMANTICS (post-P0 hardening): the HMAC key used to be
+    ``LIVEKIT_API_SECRET`` directly, which coupled every user's room name
+    to a credential that is expected to rotate as routine security hygiene
+    -- and MUST rotate if it ever leaks. Rotating it silently renamed every
+    room and stranded any in-flight session. The key is now
+    ``JARVIS_ROOM_SALT`` -- a secret dedicated to this derivation and
+    independent of the LiveKit API credential -- falling back to
+    ``LIVEKIT_API_SECRET`` only when ``JARVIS_ROOM_SALT`` is unset, which
+    reproduces the original derivation byte-for-byte so an existing
+    deployment's room names do not change on upgrade. Net effect:
+
+    * Rotating ``JARVIS_ROOM_SALT`` changes every room name (by design --
+      it is the room-derivation secret) and strands in-flight sessions.
+      Rotate it only when you intend that (e.g. it leaked).
+    * Rotating ``LIVEKIT_API_SECRET`` alone, with ``JARVIS_ROOM_SALT`` set,
+      no longer changes any room name -- routine LiveKit credential
+      rotation is now safe. (Without ``JARVIS_ROOM_SALT`` set, the old
+      coupling still applies -- set it to get the independence.)
     """
-    api_secret = os.environ["LIVEKIT_API_SECRET"]
-    mac = hmac.new(api_secret.encode("utf-8"), user_id.encode("utf-8"), hashlib.sha256)
+    room_secret = os.environ.get("JARVIS_ROOM_SALT") or os.environ["LIVEKIT_API_SECRET"]
+    mac = hmac.new(room_secret.encode("utf-8"), user_id.encode("utf-8"), hashlib.sha256)
     return f"user-{mac.hexdigest()[:24]}"
 
 

@@ -191,6 +191,11 @@ def app_env(monkeypatch, clerk_signing_key: RSAKeyPair):
     livekit_secret = "test-livekit-secret-0123456789-padding-to-32-bytes"
     monkeypatch.setenv("LIVEKIT_API_SECRET", livekit_secret)
     monkeypatch.setenv("LIVEKIT_URL", "wss://test.livekit.example")
+    # Unset by default so tests get the documented fallback (room derived
+    # from LIVEKIT_API_SECRET) unless a test explicitly sets JARVIS_ROOM_SALT
+    # itself -- guards against an ambient value in the real environment
+    # leaking into a test run and silently changing derived rooms.
+    monkeypatch.delenv("JARVIS_ROOM_SALT", raising=False)
     return {
         "livekit_api_key": "test-livekit-key",
         "livekit_api_secret": livekit_secret,
