@@ -107,6 +107,20 @@ def test_client_cannot_force_anonymous_mode_via_request(client):
 def test_valid_token_succeeds_and_identity_comes_from_the_token(
     client, app_env, clerk_signing_key: RSAKeyPair, clerk_user_id: str
 ):
+    # NOTE (P1 fix): this assertion used to be `identity == clerk_user_id`.
+    # Post-fix, the minted LiveKit identity is session-scoped (a random
+    # suffix appended to the verified user_id -- see
+    # jarvis.server.app._session_scoped_identity's docstring for why:
+    # LiveKit's DUPLICATE_IDENTITY eviction, confirmed in the installed
+    # SDK source), so byte-identity with the bare user_id no longer holds
+    # for ANY authenticated request, not just this one. What T-10's
+    # acceptance #1 actually requires -- identity comes ONLY from the
+    # verified token, never client input -- is still proven here just as
+    # strictly: the stable key recovered from the minted identity via
+    # jarvis.server.app.stable_identity_key must equal the verified
+    # clerk_user_id exactly.
+    from jarvis.server.app import stable_identity_key
+
     token = mint_clerk_token(signing_key=clerk_signing_key, sub=clerk_user_id)
 
     resp = client.post(
@@ -118,7 +132,7 @@ def test_valid_token_succeeds_and_identity_comes_from_the_token(
     assert resp.status_code == 200
     body = resp.json()
     identity = _decode_livekit_identity(body["token"], secret=app_env["livekit_api_secret"])
-    assert identity == clerk_user_id
+    assert stable_identity_key(identity) == clerk_user_id
 
 
 def test_client_supplied_identity_in_body_is_ignored(
@@ -126,7 +140,15 @@ def test_client_supplied_identity_in_body_is_ignored(
 ):
     """The request body claims to be a totally different user; the server
     must still mint a LiveKit token for the VERIFIED Clerk identity.
+
+    NOTE (P1 fix): see test_valid_token_succeeds_and_identity_comes_from_
+    the_token's note -- `identity == clerk_user_id` no longer holds
+    post-fix (identity is session-scoped), so this asserts the stable key
+    recovered from the minted identity instead, which is exactly as
+    strict a proof that the forged body value was never used.
     """
+    from jarvis.server.app import stable_identity_key
+
     forged_body_identity = "user_someone_else_entirely"
     token = mint_clerk_token(signing_key=clerk_signing_key, sub=clerk_user_id)
 
@@ -139,8 +161,9 @@ def test_client_supplied_identity_in_body_is_ignored(
     assert resp.status_code == 200
     body = resp.json()
     identity = _decode_livekit_identity(body["token"], secret=app_env["livekit_api_secret"])
-    assert identity == clerk_user_id
+    assert stable_identity_key(identity) == clerk_user_id
     assert identity != forged_body_identity
+    assert stable_identity_key(identity) != forged_body_identity
 
 
 # ---------------------------------------------------------------------------
@@ -403,3 +426,115 @@ def test_authenticated_room_survives_malformed_or_absent_client_room(
         rooms.add(claims["video"]["room"])
 
     assert len(rooms) == 1, f"malformed/absent room values produced different grants: {rooms}"
+
+
+# ---------------------------------------------------------------------------
+# P1 FIX (filed by the watchdog, confirmed against the installed SDK
+# source): LiveKit disconnects the EXISTING participant whenever a NEW one
+# joins a room with the same identity -- confirmed in
+# livekit/rtc/participant.py's RemoteParticipant.disconnect_reason
+# docstring: "DUPLICATE_IDENTITY - another participant with the same
+# identity has joined the room" (installed livekit 1.1.14, not docs/memory).
+#
+# Before this fix, authenticated-mode /api/token minted
+# ``.with_identity(user_id)`` with the bare, stable Clerk user_id for
+# EVERY session, so a user's second tab/device silently evicted their
+# first. The fix mints a per-token (per-session) identity instead, while
+# the P0 room derivation above (keyed on the bare, stable user_id) is
+# untouched -- both sessions still land in the SAME room.
+#
+# The stable Clerk user_id must still be recoverable from the minted
+# identity via ``jarvis.server.app.stable_identity_key`` -- worker.py's
+# ``_resolve_user_id`` keys mem0 memory off ``RemoteParticipant.identity``,
+# so a scheme that could not recover the stable id would silently break
+# memory continuity across sessions, a worse regression than the eviction
+# bug being fixed here.
+# ---------------------------------------------------------------------------
+
+
+def test_two_tokens_for_the_same_user_get_different_identities_same_room(
+    client, app_env, clerk_signing_key: RSAKeyPair, clerk_user_id: str
+):
+    from jarvis.server.app import stable_identity_key
+
+    token_1 = mint_clerk_token(signing_key=clerk_signing_key, sub=clerk_user_id)
+    token_2 = mint_clerk_token(signing_key=clerk_signing_key, sub=clerk_user_id)
+
+    resp_1 = client.post(
+        "/api/token",
+        json={"identity": clerk_user_id, "room": None},
+        headers={"Authorization": f"Bearer {token_1}"},
+    )
+    resp_2 = client.post(
+        "/api/token",
+        json={"identity": clerk_user_id, "room": None},
+        headers={"Authorization": f"Bearer {token_2}"},
+    )
+    assert resp_1.status_code == 200
+    assert resp_2.status_code == 200
+
+    claims_1 = pyjwt.decode(
+        resp_1.json()["token"], app_env["livekit_api_secret"], algorithms=["HS256"]
+    )
+    claims_2 = pyjwt.decode(
+        resp_2.json()["token"], app_env["livekit_api_secret"], algorithms=["HS256"]
+    )
+    identity_1, identity_2 = claims_1["sub"], claims_2["sub"]
+    room_1, room_2 = claims_1["video"]["room"], claims_2["video"]["room"]
+
+    assert identity_1 != identity_2, (
+        "two sessions for the SAME user got the SAME LiveKit participant identity -- "
+        "LiveKit disconnects the existing participant on a duplicate identity "
+        "(DUPLICATE_IDENTITY), so the first tab/device would be silently evicted "
+        "by the second"
+    )
+    assert room_1 == room_2, (
+        "same authenticated user must still land in the SAME private room across "
+        "sessions -- the P0 room-membership fix must not regress"
+    )
+
+    # The stable Clerk user_id must still be recoverable from each per-session
+    # identity, so a memory-namespace consumer keyed off participant identity
+    # (e.g. jarvis.pipeline.worker._resolve_user_id) can still recover a
+    # STABLE key instead of a different one every session.
+    assert stable_identity_key(identity_1) == clerk_user_id
+    assert stable_identity_key(identity_2) == clerk_user_id
+
+
+def test_two_different_users_still_get_different_rooms_and_identities(
+    client, app_env, clerk_signing_key: RSAKeyPair
+):
+    """The P0 guarantee (separate tenants -> separate rooms) must hold
+    exactly as before, now that identity is also session-scoped.
+    """
+    from jarvis.server.app import stable_identity_key
+
+    user_a, token_a = _mint_user(clerk_signing_key)
+    user_b, token_b = _mint_user(clerk_signing_key)
+
+    resp_a = client.post(
+        "/api/token",
+        json={"identity": user_a, "room": None},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    resp_b = client.post(
+        "/api/token",
+        json={"identity": user_b, "room": None},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert resp_a.status_code == 200
+    assert resp_b.status_code == 200
+
+    claims_a = pyjwt.decode(
+        resp_a.json()["token"], app_env["livekit_api_secret"], algorithms=["HS256"]
+    )
+    claims_b = pyjwt.decode(
+        resp_b.json()["token"], app_env["livekit_api_secret"], algorithms=["HS256"]
+    )
+
+    assert claims_a["video"]["room"] != claims_b["video"]["room"], (
+        "two DIFFERENT authenticated users must not share a room -- the P0 fix"
+    )
+    assert claims_a["sub"] != claims_b["sub"]
+    assert stable_identity_key(claims_a["sub"]) == user_a
+    assert stable_identity_key(claims_b["sub"]) == user_b

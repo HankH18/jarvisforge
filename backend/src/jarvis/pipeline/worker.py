@@ -39,6 +39,7 @@ import os
 
 from livekit.agents import AgentSession, JobContext, TurnHandlingOptions, WorkerOptions, cli
 
+from jarvis.auth.identity import stable_identity_key
 from jarvis.cadence.interrupt import TurnController
 
 from .agent import JarvisAgent
@@ -66,12 +67,26 @@ def _resolve_user_id(room: object) -> str:
     participant joining before ``session.start()``, and a caller that never
     drives a turn (e.g. the entrypoint tests, which pass a bare stub
     ``room``) never touches this at all.
+
+    P1 FOLLOW-UP FIX: authenticated-mode ``/api/token`` (jarvis.server.app)
+    now mints a SESSION-SCOPED LiveKit identity per tab/device
+    (``"<user_id>::<random>"``, see ``jarvis.auth.identity``'s module
+    docstring for why -- LiveKit's DUPLICATE_IDENTITY eviction). Read raw,
+    that would feed mem0 a DIFFERENT namespace per session instead of a
+    stable one per user -- cross-session memory (T-5's entire premise)
+    would silently break for every authenticated user. Passing the raw
+    identity through ``stable_identity_key`` recovers the stable
+    ``user_id`` in authenticated mode, and is a total no-op in anonymous
+    mode (no separator present, see that function's docstring) -- so
+    anonymous-mode behaviour is unchanged.
     """
     try:
         participants = list(room.remote_participants.values())  # type: ignore[attr-defined]
     except AttributeError:
         return "unknown"
-    return participants[0].identity if participants else "unknown"
+    if not participants:
+        return "unknown"
+    return stable_identity_key(participants[0].identity)
 
 
 async def entrypoint(ctx: JobContext) -> None:

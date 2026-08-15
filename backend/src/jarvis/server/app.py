@@ -59,6 +59,15 @@ from livekit.api import AccessToken, VideoGrants
 from pydantic import BaseModel
 
 from jarvis.auth.clerk import ClerkIdentity, clerk_auth_enabled, resolve_identity
+from jarvis.auth.identity import session_scoped_identity as _session_scoped_identity
+from jarvis.auth.identity import stable_identity_key
+
+# `stable_identity_key` has no caller in this module -- it is re-exported
+# for existing callers of `jarvis.server.app.stable_identity_key`
+# (backend/tests/multiuser/test_auth_jwt.py) now that its implementation
+# lives in jarvis.auth.identity (see that module's docstring for why: it
+# also has to be importable, stdlib-only, from jarvis.pipeline.worker).
+__all__ = ["app", "stable_identity_key"]
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +126,24 @@ def _room_for_authenticated_identity(user_id: str) -> str:
     who knows a target's Clerk ``user_id`` and reads this source -- can
     compute their room name without also holding a secret only the server
     has. Deterministic per user (not random per request) so the same user
-    reconnecting -- a page refresh, a second tab/device -- rejoins the
-    SAME private room instead of losing it.
+    reconnecting -- a page refresh, a second tab/device -- lands in the
+    SAME private room every time.
+
+    CORRECTION (P1 fix): an earlier version of this docstring stopped
+    there and implied that alone was enough for a second tab/device to
+    coexist with the first ("...instead of losing it"). It is not.
+    LiveKit enforces unique participant identity PER ROOM by
+    disconnecting the EXISTING participant when a NEW one joins with the
+    same identity -- confirmed in the installed SDK source (not docs):
+    ``livekit/rtc/participant.py``'s ``RemoteParticipant.disconnect_reason``
+    docstring lists ``DUPLICATE_IDENTITY - another participant with the
+    same identity has joined the room``. A shared room with a REUSED,
+    non-unique identity therefore silently evicted the earlier session --
+    the opposite of "landing together". The other half of the fix,
+    ``jarvis.auth.identity.session_scoped_identity`` (imported above as
+    ``_session_scoped_identity``, used by ``create_token`` below), is what
+    actually makes a second tab/device coexist: same room (this function,
+    unchanged), unique identity (that function, new).
 
     Deliberately stateless: no rooms table, no new schema/infra. The room
     name is fully reconstructible from (identity, server secret) alone, so
@@ -144,20 +169,32 @@ def create_token(
         # obtain grants for another user's room just by naming it).
         # resolve_identity already 401'd before this line for anything
         # but a verified token.
-        user_identity = identity.user_id
-        room = _room_for_authenticated_identity(user_identity)
+        #
+        # P1 FIX: the LiveKit identity minted below is SESSION-SCOPED
+        # (_session_scoped_identity), not the bare stable user_id --
+        # LiveKit disconnects the existing participant on a duplicate
+        # identity, so reusing the bare user_id for every session silently
+        # evicted a user's earlier tab/device. `room` is still derived
+        # from the bare, stable user_id, so every session for the same
+        # user still lands in the same private room. See
+        # _room_for_authenticated_identity's and _session_scoped_identity's
+        # docstrings for the full explanation and SDK-source citation.
+        room = _room_for_authenticated_identity(identity.user_id)
+        livekit_identity = _session_scoped_identity(identity.user_id)
     else:
         # Anonymous mode (Clerk not configured, e.g. the current Fly
         # deployment): falls back to req.identity/req.room -- T-1's
         # original, pre-T-10 contract, unchanged. This mode has no
-        # concept of separate tenants to isolate rooms between.
-        user_identity = req.identity
+        # concept of separate tenants to isolate rooms between, and no
+        # server-verified stable user_id to derive a session-scoped
+        # identity from either -- req.identity is used exactly as before.
+        livekit_identity = req.identity
         room = req.room or f"jarvis-{uuid.uuid4().hex[:8]}"
 
     grants = VideoGrants(room_join=True, room=room, can_publish=True, can_subscribe=True)
     token = (
         AccessToken(os.environ["LIVEKIT_API_KEY"], os.environ["LIVEKIT_API_SECRET"])
-        .with_identity(user_identity)
+        .with_identity(livekit_identity)
         .with_grants(grants)
         .to_jwt()
     )
