@@ -21,9 +21,11 @@ Task list name: jarvisforge (a visibility mirror only; the claim ledger rules).
 3. **One ticket at a time.** `claim.sh claim T-x "note"` makes the start
    commit and records your session as owner. Load only that ticket's
    contract and its scope files.
-4. **Stay in scope.** The guard denies out-of-scope Edit/Write. Needing an
-   out-of-scope file is a plan defect: NEEDS_HUMAN.md, stop. Do not route
-   around the guard with Bash — the integrity check catches it at close.
+4. **Stay in scope.** Needing an out-of-scope file is a plan defect:
+   NEEDS_HUMAN.md, stop. Do not route around the guard with Bash — the
+   integrity check catches it at close. **Read "Scope enforcement" below
+   before assuming the guard will stop you: for most of what happens in
+   this repo, it will not.**
 5. **`claim.sh close` is the only way a ticket finishes.** It checks
    integrity (everything you changed is in scope), runs the ticket verify,
    runs the full regression suite, and mints a receipt bound to the close
