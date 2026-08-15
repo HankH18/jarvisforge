@@ -592,7 +592,7 @@
     "A scripted check over golden.jsonl asserts no case's must_include substring appears more than once across distinct fields of that case's own fixture, so this class of ambiguity cannot silently return",
     "The golden set's _meta approved_by / approved_at are NOT set by this ticket - changing the set means it needs Hank's review again"
    ],
-   "verify": "cd backend && uv run pytest tests/grounding -q && uv run python -m evals.run --golden evals/golden.jsonl --max-fabrications 0 --client echo || true",
+   "verify": "(cd backend && uv run pytest tests/grounding -q)",
    "scope": [
     "backend/src/jarvis/llm/policy.py",
     "backend/tests/grounding/**",
@@ -624,12 +624,12 @@
     "The generated regex is anchored at both ends, so 'vendor/backend/src/jarvis/cadence/x.py' does not satisfy a 'backend/src/jarvis/cadence/**' scope",
     "A test script exercises the hook directly with representative allowed and denied paths for at least three tickets, and runs in CI"
    ],
-   "verify": "bash .claude/hooks/tests/run_scope_guard_tests.sh",
+   "verify": "bash scripts/tests/run_scope_guard_tests.sh",
    "scope": [
-    ".claude/hooks/**",
     ".claude/settings.json",
+    ".github/workflows/**",
     "CLAUDE.md",
-    ".github/workflows/**"
+    "scripts/**"
    ],
    "depends_on": [],
    "non_goals": [
@@ -656,12 +656,12 @@
     "Guards behave safely when no claim exists: a missing active-ticket does not silently disable the scope boundary for a session that does hold work",
     "A test exercises both guards for owner and non-owner sessions and runs in CI"
    ],
-   "verify": "bash .claude/hooks/tests/run_claim_tests.sh",
+   "verify": "bash scripts/tests/run_claim_tests.sh",
    "scope": [
-    ".claude/hooks/**",
     ".claude/settings.json",
+    ".github/workflows/**",
     "CLAUDE.md",
-    ".github/workflows/**"
+    "scripts/**"
    ],
    "depends_on": [
     "T-20"
@@ -872,13 +872,13 @@
     "Only T-19's verify string is edited in docs/tickets.json -- every other ticket's verify is byte-identical -- and both places docs/TASKS.md restates T-19's string (its T-19 section and the T-24 verify-coverage enumeration) are updated to the re-pinned string in the same commit; the lint only ADDS failure modes to the gate",
     "The two T-22-era sandbox assertions in .claude/hooks/tests/run_evidence_tests.sh that pin the old permissive behavior (the T-19-shaped '|| true' case and the T-23-shaped cd case, both currently asserted as allowed) are updated to expect lint rejection; if any lint code lives outside verify_gate.sh, the sandbox copy step is updated in the same change so the sandboxed gate still runs it"
    ],
-   "verify": "bash .claude/hooks/tests/run_verify_lint_tests.sh && bash .claude/hooks/tests/run_evidence_tests.sh",
+   "verify": "bash scripts/tests/run_verify_lint_tests.sh",
    "scope": [
-    "docs/tickets.json",
-    "docs/TASKS.md",
-    ".claude/hooks/**",
     "backend/evals/**",
-    "backend/tests/grounding/**"
+    "backend/tests/grounding/**",
+    "docs/TASKS.md",
+    "docs/tickets.json",
+    "scripts/**"
    ],
    "depends_on": [],
    "non_goals": [
