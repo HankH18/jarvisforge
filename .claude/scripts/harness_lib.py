@@ -82,6 +82,14 @@ def fingerprint(scope):
     # receipts attest WHAT was verified, not just when.
     h = hashlib.sha256()
     for f in scope_files(scope):
+        # META_ALLOW paths (docs/TASKS.md, .claude/monitor/**, NEEDS_HUMAN.md) are
+        # paths EVERY session may write -- harness bookkeeping, never a ticket
+        # deliverable, so they can never be evidence about a specific ticket.
+        # docs/TASKS.md especially: gen_tasks.py rewrites it AFTER cmd_close
+        # computes this hash, which made every receipt whose scope matches docs/**
+        # stale the moment it was minted (watchdog P, 2026-08-15).
+        if match_any(f, META_ALLOW, raw=True):
+            continue
         h.update(f.encode())
         try:
             with open(os.path.join(ROOT, f), "rb") as fh: h.update(hashlib.sha256(fh.read()).digest())
