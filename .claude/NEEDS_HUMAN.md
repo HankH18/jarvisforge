@@ -143,3 +143,84 @@ The likely cause is that the watchdog measured a partial working tree before T-3
 were committed. Dispatching agents to "repair" those fixtures would have damaged working
 harnesses, so they are marked REJECTED in `.claude/monitor/STACK.md` with the evidence.
 Worth knowing that the watchdog's reproduced-failure claims are not reliable on their own.
+
+---
+
+## 2026-08-15 — items CLOSED under Hank's "finish anything you can" authorization
+
+### CLOSED — "confirm the minted golden-set hash"
+No eyeballing of a hex string needed; the provenance is mechanical. `golden.jsonl`'s only
+change since the 2026-08-14 re-approval commit `362f95a` is the single `_meta` line that
+carries the hash. The **case content** hash is byte-identical at both points:
+
+```
+$ git show 362f95a:backend/evals/golden.jsonl | grep -v '"_meta"' | shasum -a 256
+f274a5c4cd0c306f1beb04fc77d015f5b6cb23892c2533e022ff98245b2ef053
+$ grep -v '"_meta"' backend/evals/golden.jsonl | shasum -a 256
+f274a5c4cd0c306f1beb04fc77d015f5b6cb23892c2533e022ff98245b2ef053
+```
+
+So `_meta.approved_sha256` provably covers exactly the bytes you re-approved. A human
+still owns the word "approved" (T-25's non-goal), but the binding is verified.
+
+### CLOSED — "CI has never executed"
+It has now, and **it was broken.** PR #1 was the first pull request this repo has ever
+had. The first run **failed in 4 seconds**:
+
+```
+Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
+```
+
+`astral-sh/setup-uv` publishes releases `v10.0.0`/`v10.0.1`, but its **moving major tag
+stops at `v7`** — so `@v10` never resolved and the backend job could never have run, on
+any commit, ever. That pin sat in the workflow unnoticed precisely because nothing could
+execute it. Fixed to `@v10.0.1`; also bumped `actions/checkout` and `actions/setup-node`
+v4 → v5 to clear the Node-20 deprecation warning.
+
+Re-run: **green**, both jobs real — backend `503 passed, 13 skipped` + `All checks
+passed!` (ruff), frontend `16 files / 105 tests passed` + build. Merged as `56dbc6d`.
+
+**One thing to know:** CI runs **503 + 13 skipped**, not the 516 you see locally. The 13
+skipped are the memory suite — there is no Postgres in CI, and T-31's loud banner prints
+in the CI log saying exactly that. This is by design: the DB-required gate is
+`verify_submission.sh`, not CI. **A green CI does not mean the memory path was verified.**
+
+### CLOSED (as far as an agent can take it) — Cartesia HTTP 402
+Re-probed live against the real API just now, not read from logs:
+
+```
+Cartesia HTTP: 402
+Model credits limit reached: Please upgrade your subscription at
+https://play.cartesia.ai/subscription to increase your credit limit or enable overages
+```
+
+Still hard-blocked. **This needs your card, and I did not attempt payment.** Until it
+clears there is no demo video, no fresh latency measurement, and the deployed assistant
+cannot speak. Everything else in the submission is ready.
+
+### CLOSED — "the grounding eval never exercises $TOOL_MODEL"
+
+Fixed, and **my earlier description of it was wrong in a way that mattered.**
+
+I told you 3 `github_qa` cases were affected. The real number is **16 of 38**. Two tools
+are tagged `heavy=True`, not one — `github_query` (`tools/github/query.py:140`, source
+`github:graphql`) and `load_repo_digest` (`digest.py:192`, source `github:gitingest`);
+`tools/github/__init__.py:3` says so outright. "github_qa" is only `routing.py`'s
+docstring name for the conceptual T-4 capability, not a registered tool. So the
+previously-unscored `$TOOL_MODEL` path covered **42% of the golden set**, not 8%.
+
+The eval now mirrors production routing per case, using the real `ToolRegistry` and the
+real `route_model()` rather than reimplementing the escalation rule. `--model` still
+works as an explicit override.
+
+**Fresh paid run (the second and last of the day): 38 cases, 0 fabrications, 0 wrong
+refusals, 0 missing includes, 0 errors.** All 16 `claude-sonnet-5` cases and all 22
+`claude-haiku-4-5` cases passed — no regression surfaced on the newly-covered path.
+
+The report's `provenance` now records `case_models` (per-case model id) and a plural
+`model_used`; `check_eval_report.py` rejects a report that omits them or claims a model
+no case used. Verified independently: the committed report shows 22 haiku / 16 sonnet and
+the checker passes.
+
+**What this changes:** R6a's zero-fabrication claim now covers both models in their real
+production roles, not just the conversational one.

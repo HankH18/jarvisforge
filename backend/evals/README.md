@@ -21,8 +21,48 @@ budgets (default 0) AND `missing_include == 0` AND no case raised; exit 1
 otherwise. If `ANTHROPIC_API_KEY` is unset, the run refuses to start and
 exits 2 with an actionable message -- it never silently falls back.
 
-Other flags: `--limit N`, `--model M` (default: `convo_model()`), `--json
+Other flags: `--limit N`, `--model M` (pin every case to this exact id,
+overriding routing -- see "Model routing mirrors production" below), `--json
 PATH` (full report), `--verbose` (print each case's full answer).
+
+## Model routing mirrors production (T-34)
+
+**This changed what a clean result means.** Before T-34, every case in a run
+scored on one model -- `jarvis.llm.routing.convo_model()` (`$CONVO_MODEL`)
+by default -- regardless of what that case's fixtures actually fired.
+Production never works that way: `jarvis.pipeline.tools_wiring`'s dispatcher
+calls `jarvis.llm.routing.route_model([spec])` for the ToolSpec it just ran,
+and any `heavy`-tagged tool (`github_query`, `load_repo_digest` -- both
+`heavy=True`, see `jarvis.tools.github`) escalates that turn's synthesis
+call to `$TOOL_MODEL`. A default run used to score EVERY case -- including
+every case whose fixture came from a `heavy` tool -- against `$CONVO_MODEL`
+only, so a clean result never actually said anything about `$TOOL_MODEL`'s
+grounding behavior, even though production routes real heavy-tool turns to
+it.
+
+`evals.run` now resolves a model **per case**, through the same
+`jarvis.llm.routing.route_model` production calls (imported, never
+reimplemented, never a hardcoded model id): a case whose fixture(s) came
+from a `heavy` tool scores on `tool_model()`; every other case scores on
+`convo_model()`. Which real tool produced a fixture is identified by the
+fixture's `result.source` (the one pinned, structural field -- see
+`evals.run._SOURCE_TO_TOOL_NAME`), not by golden.jsonl's free-text `"tool"`
+fixture label, which `evals.scoring` never even preserves onto `GoldenCase`
+and which is not reliably the real registered tool name to begin with (a
+golden case labeled `"github_qa"` -- DESIGN.md's original conceptual name
+for the T-4 github capability -- actually carries source `github:gitingest`,
+i.e. the real `load_repo_digest` tool).
+
+`--model` still exists as an explicit override: pass it to pin **every**
+case to one exact model id (for an A/B run against a single model), same as
+before. Omit it and the run routes each case exactly like a live turn would.
+
+**Concretely, on the current golden set:** 16 of 38 cases (every
+`github_query`- and `github_qa`-labeled case, plus one mixed case whose
+fixtures include a `github_query` result) fire a `heavy` tool and score on
+`$TOOL_MODEL`; the remaining 22 score on `$CONVO_MODEL`. Run with `--json`
+and inspect `provenance.case_models` to see exactly which model scored which
+case for any given report -- see `docs/evals/README.md`.
 
 ## Self-test (no API key, no network)
 

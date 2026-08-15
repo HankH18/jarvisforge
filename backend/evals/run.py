@@ -51,6 +51,7 @@ from evals.scoring import (  # noqa: E402
 
 if TYPE_CHECKING:
     from jarvis.llm.synthesis import ModelClient
+    from jarvis.tools.registry import ToolRegistry, ToolSpec
 
 _SELFTEST_BANNER = "*** SELF-TEST MODE: results are NOT evidence of grounding (SPEC R6a) ***"
 
@@ -79,6 +80,93 @@ _HASH_REMEDY = (
     "golden.jsonl's _meta.approved_sha256 by hand -- no agent may write this "
     "field (see backend/evals/README.md)."
 )
+
+
+# T-34 (post-build hardening): mirror production's per-turn model escalation
+# instead of scoring the whole golden set on `convo_model()`.
+#
+# `jarvis.llm.routing.route_model(fired_tools)` decides this by inspecting
+# each fired `ToolSpec.heavy` -- and production (`jarvis.pipeline.
+# tools_wiring._make_dispatcher`) always calls it as `route_model([spec])`
+# for the ONE ToolSpec it just dispatched. This eval has no live dispatch to
+# read a fired ToolSpec off of, only golden.jsonl's static fixtures, so it
+# has to reconstruct "which real tool produced this fixture" some other way.
+#
+# It can't be `fixture["tool"]`, golden.jsonl's free-text authoring label:
+# `evals.scoring._parse_case` never preserves it on `GoldenCase` at all (only
+# `fixture["result"]` survives), and -- confirmed by inspection -- it isn't
+# even reliably the real `ToolSpec.name` to begin with. `github_qa` is
+# DESIGN.md/`jarvis.llm.routing`'s own docstring's ORIGINAL conceptual name
+# for the T-4 github capability; the concrete implementation split it into
+# TWO real tools, `github_query` (source `github:graphql`) AND
+# `load_repo_digest` (source `github:gitingest`), both `heavy=True`
+# (`jarvis.tools.github.__init__`'s docstring: "Two tools, both heavy=True").
+# Every golden case labeled `github_qa` actually carries source
+# `github:gitingest` -- i.e. `load_repo_digest` -- while cases labeled
+# `github_query` carry `github:graphql`, the OTHER heavy tool. Routing only
+# the literally-`github_qa`-labeled cases to $TOOL_MODEL would silently miss
+# every `github_query`-labeled case, which fires an equally `heavy` tool.
+#
+# `ToolResult.source` (pinned in `jarvis.llm.types`: "weather:open-meteo" |
+# "github:graphql" | "github:gitingest" | "memory:mem0" | "self:manifest")
+# IS preserved on `GoldenCase` (it's part of `result`, not `tool`), and it's
+# a structural fact about which handler produced the fixture, not free-text.
+# This maps it back to the real, registered `ToolSpec` so `.heavy` is read
+# from the SAME object production reads it from -- never re-derived or
+# hardcoded here.
+_SOURCE_TO_TOOL_NAME: dict[str, str] = {
+    "weather:open-meteo": "get_weather",
+    "github:graphql": "github_query",
+    "github:gitingest": "load_repo_digest",
+    "self:manifest": "self_manifest",
+    "memory:mem0": "recall_memory",
+}
+
+
+def _build_eval_registry() -> ToolRegistry:
+    """The real production `ToolRegistry` (`jarvis.pipeline.tools_wiring.
+    build_registry`), used here ONLY to read each real `ToolSpec.heavy` flag
+    -- no handler is ever called through it. `LazyMemoryStore(database_url=
+    None)` degrades to "unavailable" without a network touch (same
+    construction `backend/tests/pipeline/test_tool_wiring.py`'s
+    `_build_agent` uses for tests that never call the memory tool), which is
+    fine here: this eval never calls `.get()`/`.search()` on it either, only
+    reads the memory `ToolSpec`'s `.heavy` (hardcoded `False`,
+    `tools_wiring._memory_tool_spec`) off the registry it's registered into.
+    """
+    from jarvis.pipeline.tools_wiring import LazyMemoryStore, build_registry
+
+    return build_registry(memory=LazyMemoryStore(database_url=None), user_id_getter=lambda: "")
+
+
+def _fired_specs(case: GoldenCase, registry: ToolRegistry) -> list[ToolSpec]:
+    """The real `ToolSpec`(s) that produced `case`'s fixtures, resolved via
+    `_SOURCE_TO_TOOL_NAME` + `registry`. Feeding this to `route_model` is
+    exactly how this eval determines "which tools fired this turn" -- the
+    same question production answers by calling `route_model([spec])` for
+    the ToolSpec its dispatcher just ran (`tools_wiring._make_dispatcher`).
+
+    Raises `ValueError` naming the case and the unmapped source if a fixture
+    carries a `source` this eval doesn't know how to attribute to a real
+    tool -- a golden set is a fixed, approved artifact (T-29's content hash),
+    so this should never fire against the current approved set; it exists so
+    an eval-set change nobody taught this mapping about fails LOUDLY, before
+    any API call, rather than silently under- or over-escalating.
+    """
+    specs: list[ToolSpec] = []
+    for fixture in case.fixtures:
+        source = fixture.get("source")
+        name = _SOURCE_TO_TOOL_NAME.get(source)  # type: ignore[arg-type]
+        if name is None:
+            raise ValueError(
+                f"golden case {case.id!r}: fixture source {source!r} has no known "
+                "production-tool mapping in evals.run._SOURCE_TO_TOOL_NAME, so this "
+                "eval cannot tell whether the fixture's real tool is `heavy` (see "
+                "jarvis.llm.routing.route_model) -- add the mapping there, or confirm "
+                "this is genuinely a new tool and update this comment's enumeration"
+            )
+        specs.append(registry.get(name))
+    return specs
 
 
 class EchoModelClient:
@@ -191,18 +279,33 @@ def _summarize(
     return exit_code, summary
 
 
-def _build_provenance(args: argparse.Namespace, model: str, meta: dict[str, Any] | None) -> dict:
-    """Runtime-only provenance for a committed JSON report (T-33 follow-up):
-    what actually ran, never hardcoded.
+def _build_provenance(
+    args: argparse.Namespace, case_models: dict[str, str], meta: dict[str, Any] | None
+) -> dict:
+    """Runtime-only provenance for a committed JSON report (T-33 follow-up,
+    T-34 per-case routing): what actually ran, never hardcoded.
 
     `convo_model`/`tool_model` are read from the exact `jarvis.llm.routing`
     functions the run itself uses -- not from re-reading env vars
     independently -- so a value here can never silently drift from what
     `evals.run` would actually resolve. Both are recorded regardless of
-    which one drove THIS run's cases (`model_used` is the one that did;
-    see run.py's module-level model resolution) because a reader needs to
-    know both the routed convo id and the routed tool-escalation id to
-    judge coverage, not just whichever one happened to be active.
+    which one(s) drove THIS run's cases (see `case_models`/`model_used`)
+    because a reader needs to know both the routed convo id and the routed
+    tool-escalation id to judge coverage, not just whichever one happened
+    to be active.
+
+    `case_models`/`model_used` (T-34): `evals.run` now resolves a model PER
+    CASE via `jarvis.llm.routing.route_model` (or pins every case to
+    `--model` when given -- see `main()`), so one scalar can no longer
+    honestly describe "the model this run used". `case_models` is the full
+    case_id -> model_id map (every case this run actually scored, whether or
+    not `synthesize_grounded` ended up calling the client -- e.g. a
+    structural no-evidence refusal still has a routed model, it just never
+    dispatches); `model_used` is the sorted set of distinct values in
+    `case_models`, so a reader gets an honest plural summary instead of a
+    single value that silently used to mean "the first one" (which, before
+    T-34, was actually "the only one" -- this run-wide resolution is what
+    T-34 replaced).
 
     `golden_approved_sha256`/`golden_content_sha256` bind the report to the
     exact golden.jsonl bytes it scored (T-29): the approved hash comes
@@ -230,7 +333,8 @@ def _build_provenance(args: argparse.Namespace, model: str, meta: dict[str, Any]
         "client": args.client,
         "convo_model": _resolve(convo_model),
         "tool_model": _resolve(tool_model),
-        "model_used": model,
+        "model_used": sorted(set(case_models.values())),
+        "case_models": dict(case_models),
         "golden_path": str(args.golden),
         "golden_approved_sha256": approved_sha256,
         "golden_content_sha256": golden_content_sha256(args.golden),
@@ -271,7 +375,15 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--max-wrong-refusals", type=int, default=0, help="wrong_refusals allowed before FAIL"
     )
     parser.add_argument(
-        "--model", default=None, help="model id (default: jarvis.llm.routing.convo_model())"
+        "--model",
+        default=None,
+        help=(
+            "pin EVERY case to this exact model id, overriding per-case routing "
+            "(useful for an A/B run against one model only). Default: route each "
+            "case through jarvis.llm.routing.route_model, exactly like production -- "
+            "a case whose fixture(s) fire a `heavy` tool scores on tool_model(), "
+            "every other case scores on convo_model()."
+        ),
     )
     parser.add_argument(
         "--client",
@@ -382,17 +494,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    from jarvis.llm.routing import ModelRoutingError, convo_model
-
-    if args.model is not None:
-        model = args.model
-    else:
-        try:
-            model = convo_model()
-        except ModelRoutingError as exc:
-            print(f"error: {exc}. Pass --model explicitly to override.", file=sys.stderr)
-            return 2
-
     try:
         cases = load_golden(args.golden)
     except (ValueError, OSError) as exc:
@@ -402,6 +503,32 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit is not None:
         cases = cases[: args.limit]
 
+    from jarvis.llm.routing import ModelRoutingError, route_model
+
+    # T-34: resolve every case's model BEFORE running any of them -- a full
+    # pre-pass, not lazily inside the loop below -- so a routing/env-var
+    # problem (an unmapped fixture source, an unset $TOOL_MODEL) is a fast,
+    # zero-API-calls failure instead of surfacing after N-1 cases already
+    # spent real money. `--model` pins every case to one explicit id
+    # (unchanged A/B-override behavior); the default path routes each case
+    # through the real `route_model`, mirroring production per-turn
+    # escalation exactly (see `_fired_specs`/`_SOURCE_TO_TOOL_NAME` above).
+    case_models: dict[str, str] = {}
+    if args.model is not None:
+        for case in cases:
+            case_models[case.id] = args.model
+    else:
+        registry = _build_eval_registry()
+        try:
+            for case in cases:
+                case_models[case.id] = route_model(_fired_specs(case, registry))
+        except ModelRoutingError as exc:
+            print(f"error: {exc}. Pass --model explicitly to override.", file=sys.stderr)
+            return 2
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
     client: ModelClient | None = EchoModelClient() if args.client == "echo" else None
 
     if args.client == "echo":
@@ -409,9 +536,10 @@ def main(argv: list[str] | None = None) -> int:
 
     outcomes: list[CaseOutcome] = []
     for case in cases:
-        outcome = _run_case(case, model=model, client=client)
+        case_model = case_models[case.id]
+        outcome = _run_case(case, model=case_model, client=client)
         outcomes.append(outcome)
-        line = f"  {outcome.case_id:8s} {outcome.kind:9s} {outcome.verdict}"
+        line = f"  {outcome.case_id:8s} {outcome.kind:9s} {outcome.verdict} [{case_model}]"
         if outcome.detail and (args.verbose or outcome.verdict != "pass"):
             line += f" -- {outcome.detail}"
         if args.verbose:
@@ -421,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
     exit_code, summary = _summarize(outcomes, args, draft=draft)
 
     if args.json_out is not None:
-        provenance = _build_provenance(args, model, meta)
+        provenance = _build_provenance(args, case_models, meta)
         _write_json_report(args.json_out, outcomes, summary, provenance)
 
     if args.client == "echo":

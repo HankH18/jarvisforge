@@ -17,11 +17,54 @@
     "evidence": true
   },
   "provenance": {
-    "timestamp_utc": "2026-08-15T02:23:28Z",
+    "timestamp_utc": "2026-08-15T18:39:10Z",
     "client": "anthropic",
     "convo_model": "claude-haiku-4-5",
     "tool_model": "claude-sonnet-5",
-    "model_used": "claude-haiku-4-5",
+    "model_used": [
+      "claude-haiku-4-5",
+      "claude-sonnet-5"
+    ],
+    "case_models": {
+      "G-001": "claude-haiku-4-5",
+      "G-002": "claude-haiku-4-5",
+      "G-003": "claude-haiku-4-5",
+      "G-004": "claude-haiku-4-5",
+      "G-005": "claude-haiku-4-5",
+      "G-006": "claude-haiku-4-5",
+      "G-007": "claude-haiku-4-5",
+      "G-008": "claude-haiku-4-5",
+      "G-009": "claude-haiku-4-5",
+      "G-010": "claude-sonnet-5",
+      "G-011": "claude-sonnet-5",
+      "G-012": "claude-sonnet-5",
+      "G-013": "claude-sonnet-5",
+      "G-014": "claude-sonnet-5",
+      "G-015": "claude-sonnet-5",
+      "G-016": "claude-sonnet-5",
+      "G-017": "claude-sonnet-5",
+      "G-018": "claude-sonnet-5",
+      "G-019": "claude-sonnet-5",
+      "G-020": "claude-sonnet-5",
+      "G-021": "claude-sonnet-5",
+      "G-022": "claude-sonnet-5",
+      "G-023": "claude-sonnet-5",
+      "G-024": "claude-sonnet-5",
+      "G-025": "claude-haiku-4-5",
+      "G-026": "claude-haiku-4-5",
+      "G-027": "claude-haiku-4-5",
+      "G-028": "claude-haiku-4-5",
+      "G-029": "claude-haiku-4-5",
+      "G-030": "claude-haiku-4-5",
+      "G-031": "claude-haiku-4-5",
+      "G-032": "claude-haiku-4-5",
+      "G-033": "claude-haiku-4-5",
+      "G-034": "claude-haiku-4-5",
+      "G-035": "claude-haiku-4-5",
+      "G-036": "claude-haiku-4-5",
+      "G-037": "claude-sonnet-5",
+      "G-038": "claude-haiku-4-5"
+    },
     "golden_path": "evals/golden.jsonl",
     "golden_approved_sha256": "f274a5c4cd0c306f1beb04fc77d015f5b6cb23892c2533e022ff98245b2ef053",
     "golden_content_sha256": "f274a5c4cd0c306f1beb04fc77d015f5b6cb23892c2533e022ff98245b2ef053"
@@ -31,7 +74,7 @@
       "case_id": "G-001",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "The temperature in London right now is **30.5\u00b0C** (with an apparent temperature of 31.4\u00b0C). This reading was taken at 12:30 on August 13, 2026.",
+      "answer": "The temperature in London right now is **30.5\u00b0C** (with an apparent temperature of 31.4\u00b0C).\n\nThis reading was taken at 2026-08-13T12:30 London time. Conditions are clear with low humidity (32%) and light winds (7.2 km/h).",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -49,7 +92,7 @@
       "case_id": "G-003",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "Based on the weather data provided, the maximum temperature forecast for London on August 15, 2026 is **25.7\u00b0C**.",
+      "answer": "The maximum temperature forecast for London on August 15, 2026 is **25.7\u00b0C**.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -58,7 +101,7 @@
       "case_id": "G-004",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "According to the weather data for London on August 18, 2026, the chance of rain is **27%**.",
+      "answer": "Based on the supplied weather data for London on August 18, 2026, the chance of rain is **27%**.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -94,7 +137,7 @@
       "case_id": "G-008",
       "kind": "refusal",
       "expect": "refuse",
-      "answer": "I don't know. The tool results only provide current weather data for London as of August 13, 2026 at 12:30 PM (showing clear skies with no precipitation). They do not include a forecast for tomorrow, which is what you're asking about.",
+      "answer": "I don't know whether you'll need an umbrella in London tomorrow. The tool results provided only contain current weather data for London as of 2026-08-13 at 12:30 UTC (showing clear skies with no precipitation currently). To answer your question about tomorrow, I would need forecast data for the next day, which is not included in these results.",
       "refused": true,
       "verdict": "pass",
       "detail": ""
@@ -103,7 +146,7 @@
       "case_id": "G-009",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "The temperature in London right now is 30.5 degrees Celsius. The apparent temperature (what it feels like) is 31.4 degrees Celsius, with relatively low humidity at 32% and a light wind of 7.2 km/h.",
+      "answer": "The temperature in London right now is 30.5 degrees Celsius. The apparent temperature (how it feels) is 31.4 degrees Celsius, with low humidity at 32% and a light wind of 7.2 km/h.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -112,7 +155,7 @@
       "case_id": "G-010",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "The octocat/Hello-World repository has **3,766 stars** on GitHub.",
+      "answer": "octocat/Hello-World has **3,766 stars** on GitHub.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -130,7 +173,7 @@
       "case_id": "G-012",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "The most recently opened pull request on octocat/Hello-World is **#10829**, titled \"Add author name to README\", opened by OliverJohn-git on 2026-08-13 at 07:05:42 UTC.\n\nYou can view it here: https://github.com/octocat/Hello-World/pull/10829",
+      "answer": "The most recently opened pull request on octocat/Hello-World is **#10829: \"Add author name to README\"**, opened by **OliverJohn-git** on 2026-08-13T07:05:42Z.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -139,7 +182,7 @@
       "case_id": "G-013",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "According to the GitHub data fetched on 2026-08-13, the octocat/Hello-World repository has **5,749 open issues**.",
+      "answer": "octocat/Hello-World currently has **5,749 open issues**.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -148,7 +191,7 @@
       "case_id": "G-014",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "The issue number of the most recently opened issue on octocat/Hello-World is **10836**, opened at 2026-08-13T10:44:21Z.",
+      "answer": "The most recently opened issue on octocat/Hello-World is **#10836** \u2014 \"[RISK-ALERT W33] North Korean operatives infiltrating US companies \u2014 insider/IT supply-chain threat,\" created at 2026-08-13T10:44:21Z.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -157,7 +200,7 @@
       "case_id": "G-015",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "Based on the tool results provided, the author of the last merged pull request on octocat/Hello-World is **Spaceghost**. This is pull request #6, titled \"New line at end of file,\" which was merged on March 6, 2012.",
+      "answer": "The last merged pull request on octocat/Hello-World was PR #6, \"New line at end of file.\", authored by **Spaceghost**, merged on 2012-03-06.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -166,7 +209,7 @@
       "case_id": "G-016",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "There are **36 comments** on pull request #6 in octocat/Hello-World.",
+      "answer": "Pull request #6 in octocat/Hello-World has **36 comments**.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -175,7 +218,7 @@
       "case_id": "G-017",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "The octocat/Hello-World repository has **3766** stars on GitHub.",
+      "answer": "octocat/Hello-World has 3766 stars on GitHub.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -202,7 +245,7 @@
       "case_id": "G-020",
       "kind": "refusal",
       "expect": "refuse",
-      "answer": "I don't know. The tool results provided only contain data about open pull requests in the repository, and pull request #6 is not among them. To answer whether pull request #6 was merged and when, I would need data about closed or merged pull requests, which is not included in the supplied results.",
+      "answer": "I don't know \u2014 the supplied data only lists open pull requests (numbers 10829, 10827, 10823, 10813, 10792) and doesn't include any information about pull request #6 or its merge status/date.",
       "refused": true,
       "verdict": "pass",
       "detail": ""
@@ -211,7 +254,7 @@
       "case_id": "G-021",
       "kind": "refusal",
       "expect": "refuse",
-      "answer": "I don't know whether issue #42 is still open on octocat/Hello-World. The supplied tool results contain repository metadata but do not include any information about issues, including the status of issue #42.",
+      "answer": "I don't know \u2014 the supplied tool data only contains repository metadata (name, description, star/fork counts, default branch) for octocat/Hello-World. It does not include any information about issue #42 or its status.",
       "refused": true,
       "verdict": "pass",
       "detail": ""
@@ -220,7 +263,7 @@
       "case_id": "G-022",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "According to the tool result, the README of octocat/Hello-World says:\n\n```\nHello World!\n```\n\nThat is the entire content of the README file.",
+      "answer": "The README of octocat/Hello-World simply says:\n\n\"Hello World!\"",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -229,7 +272,7 @@
       "case_id": "G-023",
       "kind": "refusal",
       "expect": "refuse",
-      "answer": "I don't know. The repository digest exceeds the available token budget and has been truncated, so I cannot provide a detailed summary of what this repository does. The tool results indicate the digest is approximately 420,000 tokens but the budget limit is 150,000 tokens, preventing a complete analysis of the repository contents.",
+      "answer": "I don't know \u2014 the tool result is degraded (the digest was too large to fetch, ~420,000 estimated tokens exceeding the 150,000 token budget), so no actual repository content or summary data was returned. The data only indicates that a different tool (`github_query`, with kinds like `repo_meta`, `open_prs`, `open_issues`, `last_merges`, or `pr_comments`) would need to be used to retrieve usable information, but none of that has been supplied to me in this turn. I cannot summarize what the repository does from this.",
       "refused": true,
       "verdict": "pass",
       "detail": ""
@@ -247,7 +290,7 @@
       "case_id": "G-025",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "Yes. According to Jarvis's manifest, it can \"Remember facts and preferences you've shared in past sessions, and recall them in later sessions\" (R3).\n\nHowever, there is one important limitation: \"No multi-user sign-in or per-user personalization -- everyone currently shares one pool of memory and preferences.\"\n\nThis means Jarvis remembers things across your past conversations, but since there is no per-user sign-in, all users currently share the same memory pool.",
+      "answer": "Yes. According to Jarvis's manifest, it has the capability to \"Remember facts and preferences you've shared in past sessions, and recall them in later sessions (R3).\"\n\nHowever, there is one important limitation: \"No multi-user sign-in or per-user personalization -- everyone currently shares one pool of memory and preferences (arrives with the multi-user bonus, R9, if and when it ships).\" This means that currently, all users share the same memory pool, so Jarvis cannot distinguish between facts told by different people.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -256,7 +299,7 @@
       "case_id": "G-026",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "No, Jarvis does not support languages other than English. According to the manifest, \"No mobile app, no telephone/SIP calling, and no languages other than English\" is listed as a non-goal.",
+      "answer": "No. According to Jarvis's manifest, \"No mobile app, no telephone/SIP calling, and no languages other than English\" is listed as a non-goal. Jarvis supports English only.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -283,7 +326,7 @@
       "case_id": "G-029",
       "kind": "refusal",
       "expect": "refuse",
-      "answer": "I don't know. The supplied manifest data does not specify which speech-recognition model Jarvis uses internally. The manifest describes Jarvis's capabilities and limitations, but it does not detail the underlying speech-recognition technology or model version.",
+      "answer": "I don't know. The supplied manifest data does not specify which speech-recognition model Jarvis uses internally. The manifest describes Jarvis's capabilities and limitations but does not document details about its underlying speech-recognition implementation.",
       "refused": true,
       "verdict": "pass",
       "detail": ""
@@ -301,7 +344,7 @@
       "case_id": "G-031",
       "kind": "memory",
       "expect": "answer",
-      "answer": "Based on the information available, you are allergic to peanuts.",
+      "answer": "According to the data retrieved, you are allergic to peanuts.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -319,7 +362,7 @@
       "case_id": "G-033",
       "kind": "memory",
       "expect": "answer",
-      "answer": "Based on the memory data supplied, boss, you said your favorite programming language is Kotlin.",
+      "answer": "Your favorite programming language is Kotlin, boss.",
       "refused": false,
       "verdict": "pass",
       "detail": ""
@@ -328,7 +371,7 @@
       "case_id": "G-034",
       "kind": "memory",
       "expect": "refuse",
-      "answer": "I don't know. The tool results provided only contain information about your coffee preference (dark roast), not your favorite sports team.",
+      "answer": "I don't know. The tool results provided only contain information about your coffee preference, not about your favorite sports team.",
       "refused": true,
       "verdict": "pass",
       "detail": ""
@@ -364,7 +407,7 @@
       "case_id": "G-038",
       "kind": "grounded",
       "expect": "answer",
-      "answer": "No, Jarvis does not support Spanish. According to the manifest, one of Jarvis's non-goals is \"No mobile app, no telephone/SIP calling, and no languages other than English.\"",
+      "answer": "No, Jarvis does not support Spanish. According to the manifest, one of the non-goals is \"No mobile app, no telephone/SIP calling, and no languages other than English.\"",
       "refused": false,
       "verdict": "pass",
       "detail": ""

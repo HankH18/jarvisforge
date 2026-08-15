@@ -35,14 +35,29 @@ uv run python -m evals.run --golden evals/golden.jsonl \
   this repo hand-writes or hand-edits a report; a report that didn't come
   out of a real run is exactly what `scripts/check_eval_report.py`
   (below) exists to catch.
-- Model ids are never hardcoded into the run or the report. `evals.run`
-  resolves the model via `jarvis.llm.routing.convo_model()` unless
-  `--model` overrides it -- i.e. `$CONVO_MODEL` (and, when a run
-  deliberately exercises the `$TOOL_MODEL` escalation path via `--model
-  $TOOL_MODEL`, that instead). The report now carries a `provenance` block
-  (see below) recording both resolved ids at runtime, read from those same
-  `jarvis.llm.routing` functions -- never from env vars re-read
-  independently, and never hardcoded.
+- Model ids are never hardcoded into the run or the report. **T-34: `evals.run`
+  now resolves a model PER CASE via `jarvis.llm.routing.route_model`, the
+  same function production's tool dispatcher calls** -- a case whose
+  fixture(s) fired a `heavy`-tagged tool (`github_query`, `load_repo_digest`)
+  scores on `tool_model()` ($TOOL_MODEL); every other case scores on
+  `convo_model()` ($CONVO_MODEL). `--model` still exists to pin every case
+  to one explicit id instead (an A/B run against a single model). The report
+  carries a `provenance` block (see below) recording both resolved ids, plus
+  every case's actual routed model, read at runtime from the same
+  `jarvis.llm.routing` functions and the real `jarvis.pipeline.tools_wiring`
+  registry -- never from env vars re-read independently, and never
+  hardcoded.
+- **This changes what the numbers mean, compared to every report committed
+  before T-34.** Before this change, a default run scored every case --
+  including cases whose fixtures came from a `heavy` tool -- against
+  `$CONVO_MODEL` only; `$TOOL_MODEL` was resolved and recorded in
+  `provenance` but never actually issued an API call, regardless of the
+  golden set's content. **The prior committed report's "0 fabrications"
+  claim therefore covered `$CONVO_MODEL` only** -- it said nothing about the
+  model production actually escalates real heavy-tool turns to. A report
+  committed under T-34 or later scores real `$TOOL_MODEL` turns on
+  `$TOOL_MODEL`, so its zero-fabrication claim is broader and means
+  something a pre-T-34 report's claim did not.
 
 ## The `provenance` block
 
@@ -52,11 +67,16 @@ state the run itself used:
 
 ```json
 "provenance": {
-  "timestamp_utc": "2026-08-14T21:03:47Z",
+  "timestamp_utc": "2026-08-15T18:39:10Z",
   "client": "anthropic",
   "convo_model": "claude-haiku-4-5",
   "tool_model": "claude-sonnet-5",
-  "model_used": "claude-haiku-4-5",
+  "model_used": ["claude-haiku-4-5", "claude-sonnet-5"],
+  "case_models": {
+    "G-001": "claude-haiku-4-5",
+    "G-010": "claude-sonnet-5",
+    "...": "..."
+  },
   "golden_path": "evals/golden.jsonl",
   "golden_approved_sha256": "<64-hex sha256>",
   "golden_content_sha256": "<64-hex sha256>"
@@ -68,18 +88,26 @@ state the run itself used:
   rejects any committed report whose `client` isn't `anthropic`.
 - `convo_model` / `tool_model` -- both resolved via
   `jarvis.llm.routing.convo_model()` / `.tool_model()` regardless of which
-  one actually drove this run's cases, so a reader always has both ids;
+  one(s) actually drove this run's cases, so a reader always has both ids;
   either is `null` if its env var was unset when the run happened.
-- `model_used` -- the model id `evals.run` actually passed to
-  `synthesize_grounded` for every case in this run (`--model` if given,
-  else `convo_model()`). **`evals.run` resolves one model for the whole
-  run and does not route per-case through `jarvis.llm.routing.route_model`**
-  -- so even though the golden set has `github_qa` fixtures (the one tool
-  DESIGN.md marks `heavy`, i.e. the escalation path to `$TOOL_MODEL`), a
-  default run never actually calls the Anthropic API with `$TOOL_MODEL`;
-  it scores every case, including the `github_qa` ones, against
-  `$CONVO_MODEL`. `tool_model` is still recorded above for completeness,
-  not because this run exercised it.
+- `case_models` / `model_used` (T-34) -- **`evals.run` now resolves a model
+  PER CASE via `jarvis.llm.routing.route_model`, the same function
+  production's tool dispatcher calls, mirroring real per-turn escalation
+  exactly.** `case_models` is the full `case_id -> model_id` map: every case
+  this run scored, and exactly which model (`tool_model()` if the case's
+  fixture(s) fired a `heavy`-tagged tool -- `github_query`/`load_repo_digest`
+  -- else `convo_model()`; or the single `--model` override id, pinned to
+  every case, if one was given) actually scored it. `model_used` is the
+  sorted list of distinct values appearing in `case_models` -- a single
+  scalar can no longer honestly describe "the model this run used" now that
+  a run can legitimately use more than one, so this is a real list, not a
+  value that silently means "the first one" (`scripts/check_eval_report.py`
+  rejects a report whose `model_used` and `case_models` disagree in either
+  direction: a model claimed as used that no case's entry backs up, or a
+  case's model that summary never declares). Before T-34, a default run
+  resolved ONE model for the whole run and never routed per-case -- see
+  "What's currently committed" below for what that means for reports
+  committed before this change.
 - `golden_approved_sha256` / `golden_content_sha256` -- the golden set's
   `_meta.approved_sha256` and the freshly recomputed content hash
   (`evals.scoring.golden_content_sha256`, imported not reimplemented).
@@ -116,6 +144,13 @@ depend on the code it's checking. It rejects a report that is:
   `anthropic` -- rejected on this basis alone, so a committed `--client
   echo` self-test fails on the provenance field itself, not incidentally
   because echo happens to trip refusal cases;
+- **inconsistent per-case routing (T-34)** -- `case_models` is missing, not
+  an object, or doesn't cover EXACTLY the report's own `cases` (a missing
+  entry, an extra one for a case that doesn't exist); or `model_used` isn't
+  a non-empty array of unique non-empty strings; or the set of models named
+  in `model_used` doesn't exactly match the set of distinct values in
+  `case_models` (a model claimed as used that no case backs up, or a case's
+  model the summary never declares) -- either direction is rejected;
 - **not a clean run** -- any of fabrications / wrong_refusals /
   missing_include / errors is nonzero, `exit_code != 0`,
   `fail_reasons` is non-empty, `draft` is not `false`, or `evidence` is
@@ -129,20 +164,44 @@ API call to notice.
 ## What's currently committed
 
 `docs/evals/latest.json` is a real `--client anthropic` run (no
-`--draft-unapproved-not-evidence`) against the re-approved golden set
-(`backend/evals/golden.jsonl`, `_meta.approved_by` "Hank Holcomb",
-content-bound via `_meta.approved_sha256`, T-29). Summary: **38 cases, 0
-fabrications, 0 wrong refusals, 0 missing includes, 0 errors** -- all 38
-cases scored `pass` (17 grounded, 14 refusal, 7 memory). Per
-`provenance` (`--model` not passed): `client` "anthropic", `convo_model`
-"claude-haiku-4-5", `tool_model` "claude-sonnet-5", `model_used`
-"claude-haiku-4-5" -- i.e. `$CONVO_MODEL` is the only model that actually
-issued API calls for this run. `evals.run` resolves ONE model for the
-whole run rather than routing per-case through
-`jarvis.llm.routing.route_model`, so `$TOOL_MODEL` is resolved and
-recorded but not exercised here, even though the golden set has
-`github_qa` fixtures (the tool DESIGN.md marks `heavy`); see the
-`provenance` section above.
+`--draft-unapproved-not-evidence`), **the first run under T-34's per-case
+routing**, against the re-approved golden set (`backend/evals/golden.jsonl`,
+`_meta.approved_by` "Hank Holcomb", content-bound via `_meta.approved_sha256`,
+T-29). Summary: **38 cases, 0 fabrications, 0 wrong refusals, 0 missing
+includes, 0 errors** -- all 38 cases scored `pass` (17 grounded, 14 refusal,
+7 memory). Per `provenance` (`--model` not passed, so every case routed
+through `jarvis.llm.routing.route_model`): `client` "anthropic",
+`convo_model` "claude-haiku-4-5", `tool_model` "claude-sonnet-5",
+`model_used` `["claude-haiku-4-5", "claude-sonnet-5"]` -- **both models
+actually issued API calls for this run.** `provenance.case_models` shows
+exactly which: 16 of the 38 cases (`G-010`-`G-024` -- every `github_query`-
+and `github_qa`-labeled case -- plus `G-037`, a mixed weather+github_query
+case) fired a `heavy` tool and scored on `claude-sonnet-5`; the remaining 22
+scored on `claude-haiku-4-5`. All 16 `claude-sonnet-5` cases passed clean,
+alongside all 22 `claude-haiku-4-5` cases -- 0 fabrications on either model.
+
+**This is a materially broader result than every report committed before
+T-34.** Before this change, `evals.run` resolved ONE model for the whole
+run and never routed per-case through `jarvis.llm.routing.route_model`, so
+a default run scored every case -- including the 16 cases above, all of
+which fire a real `heavy`-tagged tool in production -- against
+`$CONVO_MODEL` only; `$TOOL_MODEL` was resolved and recorded in
+`provenance` but never exercised, regardless of the golden set's content.
+**The prior committed report's "0 fabrications, 38 cases" claim therefore
+covered `$CONVO_MODEL` only** -- it said nothing about the model production
+actually escalates real heavy-tool turns to, which is the heaviest,
+most fabrication-prone path in the system. (One further correction, found
+while implementing this: an earlier assessment of this gap, recorded in
+`.claude/NEEDS_HUMAN.md`, said only the 3 `github_qa`-labeled cases fired
+the one `heavy` tool. In the actual implementation there are TWO `heavy`
+tools, `github_query` and `load_repo_digest` -- `github_qa` is DESIGN.md's
+original conceptual name for the combined T-4 capability, not a real
+registered tool name -- so 16 cases fire a `heavy` tool, not 3; see
+`backend/evals/README.md`'s "Model routing mirrors production" section for
+the full mapping.) The current report closes that gap: it is the first
+committed result that actually scores real `$TOOL_MODEL` turns on
+`$TOOL_MODEL`, so its zero-fabrication claim covers what production
+actually does.
 
 This is also the re-run T-18's acceptance 3 asks for ("the eval is
 re-run and docs record that no case regressed to `missing_include` for

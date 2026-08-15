@@ -72,12 +72,23 @@ _REQUIRED_CASE_KEYS = ("case_id", "kind", "expect", "answer", "refused", "verdic
 # backend/evals/scoring.py's `_is_well_formed_sha256_hex` rather than
 # importing it (this file must stay stdlib-only and independent of the
 # backend package it validates output from -- see module docstring).
+#
+# T-34: `evals.run` now resolves a model PER CASE via `jarvis.llm.routing.
+# route_model` (mirroring production's per-turn escalation to $TOOL_MODEL
+# for a `heavy`-tagged tool) instead of one model for the whole run.
+# `model_used` changed shape accordingly -- it is now the SORTED LIST of
+# distinct model ids actually used across the run, never a bare string that
+# would silently mean "the first one" -- and `case_models` (case_id -> model
+# id, one entry per case in the report) is new: it is what lets a reader (and
+# this checker) verify EVERY individual case's claimed model, not just an
+# aggregate.
 _REQUIRED_PROVENANCE_KEYS = (
     "timestamp_utc",
     "client",
     "convo_model",
     "tool_model",
     "model_used",
+    "case_models",
     "golden_path",
     "golden_approved_sha256",
     "golden_content_sha256",
@@ -248,7 +259,7 @@ def _is_well_formed_sha256_hex(value: Any) -> bool:
     return len(candidate) == 64 and all(c in "0123456789abcdefABCDEF" for c in candidate)
 
 
-def _check_provenance(report: dict[str, Any]) -> list[str]:
+def _check_provenance(report: dict[str, Any], cases: list[dict[str, Any]]) -> list[str]:
     """Validate the `provenance` block a committed report must now carry
     (T-33 follow-up): this is what lets a reader tell WHAT produced a
     report -- which client, which resolved model ids, when, and which
@@ -258,6 +269,18 @@ def _check_provenance(report: dict[str, Any]) -> list[str]:
     class, separate from `_check_schema` and `_check_zero_failure`, so a
     `--client echo` self-test is rejected ON THE PROVENANCE FIELD ITSELF
     -- not incidentally because echo happens to trip refusal cases.
+
+    `cases` (the report's own, already schema-validated `cases` array) is
+    used to cross-check `provenance.case_models` (T-34): every case the
+    report actually scored must have an entry, no extras, and every model
+    named in `provenance.model_used` must be backed by at least one real
+    `case_models` entry -- otherwise a report could claim a model id in its
+    summary that no case actually used (or vice versa: use a model for a
+    case without ever declaring it in the summary), and this is exactly
+    the class of "the report merely LOOKS internally consistent" tampering
+    this checker exists to catch (mirrors the existing
+    totals_by_verdict/totals_by_kind recomputation checks in
+    `_check_schema`).
     """
     problems: list[str] = []
 
@@ -298,10 +321,81 @@ def _check_provenance(report: dict[str, Any]) -> list[str]:
                 f"provenance.{key} must be a non-empty string or null, got {value!r}"
             )
 
-    if not isinstance(provenance["model_used"], str) or not provenance["model_used"]:
+    # T-34: model_used is now the sorted list of distinct model ids actually
+    # used across the run (a bare string would silently mean "the first
+    # one" now that a run can route different cases to different models).
+    model_used = provenance["model_used"]
+    if (
+        not isinstance(model_used, list)
+        or not model_used
+        or not all(isinstance(m, str) and m for m in model_used)
+    ):
         problems.append(
-            f"provenance.model_used must be a non-empty string, got {provenance['model_used']!r}"
+            "provenance.model_used must be a non-empty array of non-empty strings, got "
+            f"{model_used!r}"
         )
+    elif len(set(model_used)) != len(model_used):
+        problems.append(f"provenance.model_used has duplicate entries: {model_used!r}")
+
+    # T-34: case_models is the full case_id -> model_id map for this run.
+    case_models = provenance["case_models"]
+    if not isinstance(case_models, dict) or not case_models:
+        problems.append(
+            f"provenance.case_models must be a non-empty object, got {case_models!r}"
+        )
+    elif not all(
+        isinstance(k, str) and k and isinstance(v, str) and v for k, v in case_models.items()
+    ):
+        problems.append(
+            "provenance.case_models must map non-empty string case_ids to non-empty "
+            f"string model ids, got {case_models!r}"
+        )
+    else:
+        # Bind case_models to the report's REAL case list: every case_id the
+        # report actually scored must have exactly one entry, no more, no
+        # fewer -- catches a dropped/added entry the same way the existing
+        # total_cases/len(cases) check catches a truncated cases array.
+        report_case_ids = {c.get("case_id") for c in cases if isinstance(c, dict)}
+        provenance_case_ids = set(case_models.keys())
+        if report_case_ids != provenance_case_ids:
+            missing_from_provenance = sorted(report_case_ids - provenance_case_ids)
+            extra_in_provenance = sorted(provenance_case_ids - report_case_ids)
+            detail = []
+            if missing_from_provenance:
+                detail.append(f"missing from case_models: {missing_from_provenance}")
+            if extra_in_provenance:
+                detail.append(f"extra in case_models (no matching case): {extra_in_provenance}")
+            problems.append(
+                "provenance.case_models does not cover exactly the report's cases -- "
+                + "; ".join(detail)
+            )
+
+        # Bind model_used to case_models: every model claimed as "used" must
+        # actually be used by at least one case, and every model a case
+        # claims to have used must be reflected in the summary -- closes
+        # both "claim a model that was no case actually used" and "a case
+        # uses a model the summary never mentions".
+        if isinstance(model_used, list) and all(isinstance(m, str) for m in model_used):
+            declared = set(model_used)
+            actual = set(case_models.values())
+            if declared != actual:
+                claimed_but_unused = sorted(declared - actual)
+                used_but_undeclared = sorted(actual - declared)
+                detail = []
+                if claimed_but_unused:
+                    detail.append(
+                        f"model_used claims {claimed_but_unused} but no case_models entry "
+                        "uses it"
+                    )
+                if used_but_undeclared:
+                    detail.append(
+                        f"case_models uses {used_but_undeclared} but model_used never "
+                        "declares it"
+                    )
+                problems.append(
+                    "provenance.model_used does not match the distinct models in "
+                    "provenance.case_models -- " + "; ".join(detail)
+                )
 
     if not isinstance(provenance["golden_path"], str) or not provenance["golden_path"]:
         problems.append(
@@ -397,7 +491,7 @@ def main(argv: list[str]) -> int:
             print(f"  - {problem}", file=sys.stderr)
         return 1
 
-    provenance_problems = _check_provenance(report)
+    provenance_problems = _check_provenance(report, cases)
     if provenance_problems:
         print(f"REJECTED: {path} fails provenance validation:", file=sys.stderr)
         for problem in provenance_problems:
