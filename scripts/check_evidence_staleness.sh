@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# check_evidence_staleness.sh (T-22) - reports any ticket whose declared
-# scope no longer contains exactly the bytes+mode its .pass receipt
-# certified.
+# check_evidence_staleness.sh (T-22, extended T-34) - reports any ticket
+# whose declared scope no longer contains exactly what its evidence receipt
+# certified, AND any ticket that has no receipt at all.
 #
 # WHY CONTENT, NOT COMMIT POSITION: an earlier version of this check used
 # commit-graph position (a "GRACE" exclusion) to guess which post-receipt
@@ -13,10 +13,9 @@
 # STALE on a clean close), and non-linear history (merges, CLAUDE.md rule
 # 9 worktrees) broke the positional assumption outright.
 #
-# THE FIX: verify_gate.sh's TaskCompleted hook records a content
-# fingerprint (see scripts/evidence_fingerprint.sh) -- a hash over the
-# (path, mode, byte-hash) of every file matching the ticket's declared
-# scope globs, captured from the LIVE WORKING TREE at verify time. This
+# THE FIX: a receipt records a content fingerprint (see
+# scripts/evidence_fingerprint.sh) -- a hash over every file matching the
+# ticket's declared scope globs, captured at verify/close time. This
 # check's verdict is then pure content comparison: recompute that same
 # fingerprint right now, compare to the receipt's.
 #   - Unchanged -> CURRENT. No ordering, no grace period, no message
@@ -25,23 +24,74 @@
 #     this ticket's id or not, committed or merely sitting uncommitted in
 #     the working tree, byte content or just the executable bit.
 #
-# UNVERIFIABLE (a receipt with no recorded fingerprint): a receipt written
-# before T-22 added fingerprinting (or one where fingerprinting itself
-# failed at write time -- see FP-COMPUTE-FAILED below) never captured what
-# it verified. An earlier version of this check tried to infer a baseline
-# for these by picking the commit "closest in time" to the receipt's bare
-# timestamp -- also unsound: a same-day reopen can land an unverified
-# regression closer in time than the real completion, and the checker
-# would report a genuinely stale receipt CURRENT. There is no sound
-# retroactive fix, so this check does not attempt one: a receipt with no
-# fp= gets its own terminal status, UNVERIFIABLE, which is NOT current and
-# FAILS this gate (see exit code below) -- acceptance 3 says a stale
-# receipt cannot report green, and an unverifiable one is strictly worse
-# than a known-stale one, so it cannot report green either. The remedy is
-# always the same and is stated in the message: re-run that ticket's
-# verify to mint a real, fingerprinted receipt. This script never does
-# that itself (re-running another ticket's verify is an explicit
-# non-goal); it only ever reads.
+# UNVERIFIABLE (a receipt with no recorded/recomputable fingerprint): a
+# receipt written before fingerprinting existed (or one where fingerprint
+# computation itself failed) never captured what it verified. There is no
+# sound retroactive fix, so this check does not attempt one: a receipt
+# with no usable fingerprint gets its own terminal status, UNVERIFIABLE,
+# which is NOT current and FAILS this gate -- an unverifiable receipt is
+# strictly worse than a known-stale one, so it cannot report green either.
+# The remedy is always the same: re-run that ticket's verify to mint a
+# real, fingerprinted receipt. This script never does that itself; it only
+# ever reads.
+#
+# --------------------------------------------------------------------------
+# T-34: TWO RECEIPT FORMATS, TWO DIFFERENT FINGERPRINT ALGORITHMS.
+#
+# The OLD harness (.claude/hooks/verify_gate.sh, deleted in commit dc23222)
+# wrote .claude/evidence/<T-id>.pass, a key=value file (sha=/ts=/fp=) whose
+# fp= is computed by fingerprint_live() in evidence_fingerprint.sh: for
+# every path `git ls-files --cached --others --exclude-standard` finds
+# under the ticket's scope globs (tracked files AND untracked-but-not-
+# ignored files), a "path<TAB>mode<TAB>git-hash-object-hash" line is
+# built, and the whole listing is piped through sha256.
+#
+# The NEW harness (.claude/scripts/harness_lib.py) writes
+# .claude/evidence/<T-id>.json, whose "fingerprint" field is computed by a
+# DIFFERENT function (harness_lib.py's own `fingerprint()`): only files
+# `git ls-files -- <glob>` finds (TRACKED ONLY -- no --others, so untracked
+# files are invisible to it) are hashed as sha256(path bytes ++ sha256(raw
+# file bytes)), chained into one running sha256 digest; the executable
+# mode bit is never captured at all.
+#
+# These were confirmed to diverge by reading both implementations:
+# different file enumeration (tracked-only vs tracked+untracked-not-
+# ignored), different per-file hash primitive (raw sha256 of bytes vs
+# git's own blob hash), different combination into the final digest, and
+# mode is part of one and completely absent from the other. Recomputing a
+# .json receipt's fingerprint with fingerprint_live() (the .pass
+# algorithm) would therefore call EVERY .json receipt STALE regardless of
+# whether anything actually changed -- a false alarm on the submission
+# gate, strictly worse than not checking .json receipts at all.
+#
+# So a .json receipt's fingerprint is recomputed by shelling out to the
+# SAME function that minted it: `python3 .claude/scripts/harness_lib.py
+# fingerprint <T-id>` (harness_lib.py's own documented CLI subcommand).
+# Each receipt format is judged only by the algorithm that produced it;
+# neither format's fingerprint is ever compared against the other
+# algorithm's output.
+#
+# BOTH FORMATS FOR ONE TICKET: if <T-id>.json and <T-id>.pass both exist
+# for the same ticket id, the .json receipt wins -- it is the live
+# harness's current format. The .pass file is treated as if absent.
+#
+# MISSING (T-34): every ticket id declared in docs/tickets.json is now
+# enumerated -- not just whatever files happen to sit in
+# .claude/evidence/. A ticket id with NEITHER a .pass NOR a .json receipt
+# is MISSING: its own terminal status, counted and reported separately
+# from STALE and UNVERIFIABLE, and it fails this gate. Before this
+# extension, the loop walked .claude/evidence/*.pass directly, so deleting
+# every .pass file made it loop over zero receipts and exit 0 -- green,
+# while attesting to nothing. MISSING closes that hole: the ticket list
+# (docs/tickets.json), not the evidence directory's contents, is now the
+# source of what must be accounted for.
+# --------------------------------------------------------------------------
+#
+# GITIGNORED FILES IN SCOPE are deliberately excluded from the .pass
+# fingerprint (build artifacts, backend/var/ runtime output, etc must not
+# be hashed) -- but that exclusion is disclosed per ticket, not left
+# silent, via the [NOTE: ...] suffix on ANY ticket whose scope currently
+# matches a gitignored path.
 #
 # ATTRIBUTION (labeling a STALE finding only, NEVER decides STALE vs
 # CURRENT vs UNVERIFIABLE): once a fingerprint mismatch is found on a
@@ -49,15 +99,9 @@
 # paths to guess whether the ticket's OWN commits are responsible (a real
 # reopen) or another ticket's commits are (a broad/overlapping glob
 # legitimately touched by someone else's work) -- purely to help a human
-# triage. Both are reported as STALE and both fail this gate: a byte/mode
-# mismatch means the receipt no longer proves anything about the code that
-# exists now, regardless of who caused it.
-#
-# GITIGNORED FILES IN SCOPE are deliberately excluded from every
-# fingerprint (build artifacts, backend/var/ runtime output, etc must not
-# be hashed) -- but that exclusion is disclosed per ticket, not left
-# silent, via the [NOTE: ...] suffix on ANY ticket whose scope currently
-# matches a gitignored path.
+# triage. Both are reported as STALE and both fail this gate: a mismatch
+# means the receipt no longer proves anything about the code that exists
+# now, regardless of who caused it.
 #
 # Read-only: never re-runs a ticket's verify command, never writes/deletes
 # a receipt.
@@ -65,7 +109,8 @@
 # Usage: check_evidence_staleness.sh [project_dir]
 #   project_dir defaults to $CLAUDE_PROJECT_DIR, then to this script's repo.
 #
-# Exit 0 unless at least one receipt is STALE or UNVERIFIABLE.
+# Exit 0 unless at least one receipt is STALE, UNVERIFIABLE, or a ticket id
+# is MISSING.
 
 set -uo pipefail
 
@@ -83,6 +128,7 @@ cd "$PROJECT_DIR" 2>/dev/null || {
 
 TICKETS_JSON="docs/tickets.json"
 EVIDENCE_DIR=".claude/evidence"
+HARNESS_LIB="${PROJECT_DIR}/.claude/scripts/harness_lib.py"
 
 if [ ! -f "$TICKETS_JSON" ]; then
   echo "check_evidence_staleness: ${TICKETS_JSON} not found under ${PROJECT_DIR}" >&2
@@ -91,7 +137,9 @@ fi
 
 STALE_IDS=""
 UNVERIFIABLE_IDS=""
+MISSING_IDS=""
 CHECKED=0
+TOTAL_TICKETS=0
 
 # attribute_and_label <NUM> <receipt_sha> <pathspec...>
 # Prints a short human-readable reason for a STALE finding on a receipt
@@ -129,14 +177,29 @@ attribute_and_label() {
   fi
 }
 
-shopt -s nullglob
-for receipt in "$EVIDENCE_DIR"/T-*.pass; do
-  TID="$(basename "$receipt" .pass)"
-  NUM="${TID#T-}"
-  CHECKED=$((CHECKED + 1))
+ALL_TICKET_IDS="$(jq -r '.tickets[]?.id // empty' "$TICKETS_JSON")"
 
-  RECEIPT_SHA="$(grep -E '^sha=' "$receipt" 2>/dev/null | head -n1 | cut -d= -f2-)"
-  RECEIPT_FP="$(grep -E '^fp=' "$receipt" 2>/dev/null | head -n1 | cut -d= -f2-)"
+while IFS= read -r TID; do
+  [ -z "$TID" ] && continue
+  TOTAL_TICKETS=$((TOTAL_TICKETS + 1))
+  NUM="${TID#T-}"
+
+  JSON_RECEIPT="${EVIDENCE_DIR}/${TID}.json"
+  PASS_RECEIPT="${EVIDENCE_DIR}/${TID}.pass"
+
+  if [ -f "$JSON_RECEIPT" ]; then
+    FORMAT="json"
+  elif [ -f "$PASS_RECEIPT" ]; then
+    FORMAT="pass"
+  else
+    FORMAT="missing"
+  fi
+
+  if [ "$FORMAT" = "missing" ]; then
+    echo "MISSING      ${TID}: no evidence receipt (.pass or .json) exists in ${EVIDENCE_DIR} for this ticket id declared in ${TICKETS_JSON}. Remedy: claim and close T-${NUM} to mint one."
+    MISSING_IDS="${MISSING_IDS} ${TID}"
+    continue
+  fi
 
   SCOPE_GLOBS=""
   while IFS= read -r line; do
@@ -157,8 +220,9 @@ for receipt in "$EVIDENCE_DIR"/T-*.pass; do
     fi
   done <<<"$SCOPE_GLOBS"
 
-  # --- Gap 2: disclose (never silently skip) any gitignored path inside
-  # this ticket's scope -- the fingerprint below cannot see it. ---
+  # --- disclose (never silently skip) any gitignored path inside this
+  # ticket's scope -- the .pass fingerprint cannot see it (and, tracked-
+  # only, neither can the .json algorithm, though it doesn't claim to). ---
   IGNORED_NOTE=""
   IGNORED_LIST="$(scope_has_ignored_files "${SCOPE_ARR[@]}")"
   if [ -n "$IGNORED_LIST" ]; then
@@ -167,31 +231,59 @@ for receipt in "$EVIDENCE_DIR"/T-*.pass; do
     IGNORED_NOTE=" [NOTE: ${IGNORED_COUNT} gitignored path(s) in this scope are NOT covered by the fingerprint, e.g. '${IGNORED_FIRST}']"
   fi
 
-  # --- Gap 3 + Gap 4: no usable fingerprint recorded -> UNVERIFIABLE,
-  # never inferred, never CURRENT. ---
-  if [ -z "$RECEIPT_FP" ]; then
-    echo "UNVERIFIABLE ${TID}: no content fingerprint was ever recorded for this receipt (legacy format, predates T-22's fingerprint binding) -- cannot determine whether it is current. Remedy: re-run T-${NUM}'s verify to mint a fingerprinted receipt.${IGNORED_NOTE}"
-    UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
-    continue
-  fi
-  if [ "$RECEIPT_FP" = "FP-COMPUTE-FAILED" ]; then
-    echo "UNVERIFIABLE ${TID}: fingerprint computation FAILED when this receipt was written -- it cannot be compared. Remedy: re-run T-${NUM}'s verify to mint a fingerprinted receipt.${IGNORED_NOTE}"
-    UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
-    continue
+  CHECKED=$((CHECKED + 1))
+
+  if [ "$FORMAT" = "json" ]; then
+    RECEIPT_SHA="$(jq -r '.commit // empty' "$JSON_RECEIPT" 2>/dev/null)"
+    RECEIPT_FP="$(jq -r '.fingerprint // empty' "$JSON_RECEIPT" 2>/dev/null)"
+
+    if [ -z "$RECEIPT_FP" ]; then
+      echo "UNVERIFIABLE ${TID}: this .json receipt has no 'fingerprint' field -- cannot determine whether it is current. Remedy: re-run T-${NUM}'s verify to mint a fresh receipt.${IGNORED_NOTE}"
+      UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
+      continue
+    fi
+
+    if [ ! -f "$HARNESS_LIB" ]; then
+      echo "UNVERIFIABLE ${TID}: cannot recompute this .json receipt's fingerprint -- ${HARNESS_LIB} does not exist, so the algorithm that minted it is unavailable. Remedy: restore the harness, then re-run T-${NUM}'s verify.${IGNORED_NOTE}"
+      UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
+      continue
+    fi
+
+    LIVE_FP="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" python3 "$HARNESS_LIB" fingerprint "$TID" 2>/dev/null)"
+    LIVE_RC=$?
+    if [ "$LIVE_RC" -ne 0 ] || [ -z "$LIVE_FP" ]; then
+      echo "UNVERIFIABLE ${TID}: fingerprint recompute FAILED -- 'python3 .claude/scripts/harness_lib.py fingerprint ${TID}' exited ${LIVE_RC} / produced no output. Remedy: re-run T-${NUM}'s verify to mint a fresh receipt.${IGNORED_NOTE}"
+      UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
+      continue
+    fi
+  else
+    RECEIPT_SHA="$(grep -E '^sha=' "$PASS_RECEIPT" 2>/dev/null | head -n1 | cut -d= -f2-)"
+    RECEIPT_FP="$(grep -E '^fp=' "$PASS_RECEIPT" 2>/dev/null | head -n1 | cut -d= -f2-)"
+
+    if [ -z "$RECEIPT_FP" ]; then
+      echo "UNVERIFIABLE ${TID}: no content fingerprint was ever recorded for this receipt (legacy format, predates fingerprint binding) -- cannot determine whether it is current. Remedy: re-run T-${NUM}'s verify to mint a fingerprinted receipt.${IGNORED_NOTE}"
+      UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
+      continue
+    fi
+    if [ "$RECEIPT_FP" = "FP-COMPUTE-FAILED" ]; then
+      echo "UNVERIFIABLE ${TID}: fingerprint computation FAILED when this receipt was written -- it cannot be compared. Remedy: re-run T-${NUM}'s verify to mint a fingerprinted receipt.${IGNORED_NOTE}"
+      UNVERIFIABLE_IDS="${UNVERIFIABLE_IDS} ${TID}"
+      continue
+    fi
+
+    LIVE_FP="$(fingerprint_live "${SCOPE_ARR[@]}")"
   fi
 
   # --- pure content comparison: no position, no ordering ---
-  LIVE_FP="$(fingerprint_live "${SCOPE_ARR[@]}")"
-
   if [ "$LIVE_FP" = "$RECEIPT_FP" ]; then
-    echo "CURRENT      ${TID}: scope content (and mode) matches its receipt's fingerprint${IGNORED_NOTE}"
+    echo "CURRENT      ${TID}: scope content matches its receipt's fingerprint (${FORMAT})${IGNORED_NOTE}"
     continue
   fi
 
   REASON="$(attribute_and_label "$NUM" "$RECEIPT_SHA" "${PATHSPECS[@]}")"
-  echo "STALE        ${TID}: ${REASON}${IGNORED_NOTE}"
+  echo "STALE        ${TID}: ${REASON} (${FORMAT})${IGNORED_NOTE}"
   STALE_IDS="${STALE_IDS} ${TID}"
-done
+done <<<"$ALL_TICKET_IDS"
 
 echo
 if [ -n "$STALE_IDS" ]; then
@@ -200,9 +292,12 @@ fi
 if [ -n "$UNVERIFIABLE_IDS" ]; then
   echo "UNVERIFIABLE:${UNVERIFIABLE_IDS}"
 fi
-if [ -n "$STALE_IDS" ] || [ -n "$UNVERIFIABLE_IDS" ]; then
+if [ -n "$MISSING_IDS" ]; then
+  echo "MISSING:${MISSING_IDS}"
+fi
+if [ -n "$STALE_IDS" ] || [ -n "$UNVERIFIABLE_IDS" ] || [ -n "$MISSING_IDS" ]; then
   exit 1
 else
-  echo "STALE RECEIPTS: none (${CHECKED} receipt(s) checked)"
+  echo "STALE RECEIPTS: none (${CHECKED} receipt(s) checked, ${TOTAL_TICKETS} ticket id(s) in ${TICKETS_JSON} all accounted for)"
   exit 0
 fi
