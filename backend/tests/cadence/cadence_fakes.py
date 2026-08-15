@@ -8,7 +8,8 @@ test package uses a distinct basename (``mocks``, ``memory_fakes``, ...).
 A virtual clock so gate tests run in milliseconds instead of waiting on the
 real 500ms threshold, plus recording stand-ins for Player/EventPublisher and
 a clip factory so bank/gate tests never depend on the real committed assets
-under backend/assets/fillers/ (that is test_assets.py's job alone).
+under backend/src/jarvis/cadence/assets/fillers/ (that is test_assets.py's
+job alone).
 """
 
 from __future__ import annotations

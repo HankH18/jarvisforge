@@ -33,7 +33,7 @@ never be reported as success.
 Usage (from repo root or backend/):
 
     uv run python scripts/drive_turns.py --room smoke-test --turns 1 \\
-        --utterances backend/assets/fillers --json /tmp/drive_turns.json
+        --utterances scripts/utterances --json /tmp/drive_turns.json
 
 Requires `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` in the
 environment when `--token-url` is not given (local minting, mirrors

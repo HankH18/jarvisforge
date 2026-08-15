@@ -1,8 +1,15 @@
 """CLI: pre-synthesize the six cadence filler phrases (T-6).
 
-Writes 16-bit mono PCM WAV clips plus a manifest.json into
-``backend/assets/fillers/`` (schema pinned in ``.claude/scratch/t6-contract.md``,
-consumed by ``jarvis.cadence.fillers.load_manifest``).
+Writes 16-bit mono PCM WAV clips plus a manifest.json into the packaged
+assets directory ``jarvis.cadence.fillers._resolve_assets_dir()`` resolves
+to at import time -- in a normal source checkout,
+``backend/src/jarvis/cadence/assets/fillers/`` (schema documented in
+``docs/filler-asset-packaging.md``, consumed by
+``jarvis.cadence.fillers.load_manifest``). T-30 collapsed what used to be
+two committed copies (a ``backend/assets/fillers/`` "source of truth" this
+script wrote and a separately-packaged copy production actually loaded)
+into this single location, so a rebuild can never again strand the packaged
+copy stale.
 
 Two engines:
     cartesia    Real pipeline TTS via ``jarvis.pipeline.providers.build_tts()``,
@@ -36,7 +43,14 @@ _BACKEND_SRC = _REPO_ROOT / "backend" / "src"
 if str(_BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(_BACKEND_SRC))
 
-_DEFAULT_OUT_DIR = _REPO_ROOT / "backend" / "assets" / "fillers"
+# T-30: default output is the exact directory production loads -- not a
+# second, independently-maintained guess at where that is. Reusing the real
+# resolver (rather than hardcoding backend/src/jarvis/cadence/assets/fillers
+# here too) means this can never drift from what jarvis.cadence.fillers
+# actually resolves to.
+from jarvis.cadence.fillers import _resolve_assets_dir  # noqa: E402
+
+_DEFAULT_OUT_DIR = _resolve_assets_dir()
 _DEFAULT_SAY_VOICE = "Samantha"
 _SCHEMA_VERSION = 1
 
@@ -252,7 +266,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--out",
         type=Path,
         default=_DEFAULT_OUT_DIR,
-        help="output directory (default: backend/assets/fillers)",
+        help="output directory (default: the packaged assets dir "
+        "jarvis.cadence.fillers resolves to; see _resolve_assets_dir())",
     )
     parser.add_argument(
         "--voice",

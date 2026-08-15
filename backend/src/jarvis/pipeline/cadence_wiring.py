@@ -17,8 +17,10 @@ provided audio" -> ``perform_audio_forwarding(...)``, `text` only feeds the
 transcript). ``audio_frames_from_file`` (the same helper
 ``BackgroundAudioPlayer`` uses internally for this exact job) decodes a WAV
 on disk into that iterable. The clips committed under
-``backend/assets/fillers/`` are 24kHz mono PCM16 (see manifest.json), so
-that is what is requested from the decoder. ``add_to_chat_ctx=False`` keeps
+``backend/src/jarvis/cadence/assets/fillers/`` (the single packaged source
+of truth -- see docs/filler-asset-packaging.md) are 24kHz mono PCM16 (see
+manifest.json), so that is what is requested from the decoder.
+``add_to_chat_ctx=False`` keeps
 a filler ("One sec.") out of chat history so it can never be mistaken for a
 real turn by ``tools_wiring._last_user_utterance``'s backward walk.
 
@@ -41,7 +43,7 @@ from .events import EventPublisher
 
 logger = logging.getLogger(__name__)
 
-# Real committed clip format (backend/assets/fillers/manifest.json:
+# Real committed clip format (backend/src/jarvis/cadence/assets/fillers/manifest.json:
 # "sample_rate": 24000, "channels": 1).
 _FILLER_SAMPLE_RATE = 24000
 _FILLER_NUM_CHANNELS = 1

@@ -1,7 +1,7 @@
 """FillerBank: random selection with no immediate repeat, and manifest
 loading (jarvis.cadence.fillers). Uses cadence_fakes.make_clips throughout so these
 tests never depend on the real committed assets under
-backend/assets/fillers/ -- that is test_assets.py's job.
+backend/src/jarvis/cadence/assets/fillers/ -- that is test_assets.py's job.
 """
 
 from __future__ import annotations

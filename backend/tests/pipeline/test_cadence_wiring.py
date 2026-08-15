@@ -547,7 +547,7 @@ async def test_cancellation_during_the_handler_await_still_records_a_real_tool_s
 def test_load_filler_bank_loads_the_real_committed_assets():
     bank = load_filler_bank()
     assert bank is not None
-    assert len(bank) == 6  # backend/assets/fillers/manifest.json
+    assert len(bank) == 6  # backend/src/jarvis/cadence/assets/fillers/manifest.json
 
 
 def test_load_filler_bank_degrades_to_none_when_assets_are_missing(monkeypatch):
