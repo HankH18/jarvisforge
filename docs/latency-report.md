@@ -35,6 +35,50 @@ Cloud, not the deployed Fly worker in `iad`, so the absolute numbers are not the
 numbers. What it does establish: the pipeline works, R1 is missed by roughly 40% locally,
 and preemptive TTS is not the fix. A deployed re-measurement is still owed.
 
+### Where the ~1100 ms actually goes — measured, 2026-08-15
+
+Decomposed against the live APIs rather than estimated:
+
+| stage | measured | how |
+|---|---|---|
+| LLM time-to-first-token (`claude-haiku-4-5`) | **630 ms** mean (488–907) | 4 streaming calls, realistic system prompt |
+| Cartesia TTS first byte | **65 ms** | 3 calls/model on a realistic sentence |
+| STT endpointing | already minimal | `deepgram.STT()` defaults: `endpointing_ms=25`, `no_delay=True` |
+| **measured total** | **~695 ms** | vs. 820 ms median / 1130 ms p95 observed end-to-end |
+
+**The LLM is ~90% of the controllable budget. TTS is ~6%.**
+
+### Levers that were investigated and do NOT apply
+
+- **A faster Cartesia voice model.** `sonic-3` 67 ms, `sonic-turbo` 62 ms, `sonic-2` 63 ms — a ~5 ms
+  spread. Cartesia publishes no per-model credit rates either, so there is no cost case. Swapping the
+  voice model cannot close a 300 ms gap when the voice costs 65 ms.
+- **Anthropic prompt caching.** The LiveKit plugin *does* support it
+  (`anthropic.LLM(caching="ephemeral")`, `llm.py:233`), so it is a one-line change — but it would be
+  **dead config here**. The cacheable prefix on this agent is **986 tokens** (91-token system prompt +
+  5 tool schemas + one turn), and **`claude-haiku-4-5` has a 4096-token minimum cacheable prefix**.
+  Below the minimum, caching silently does nothing: no error, `cache_creation_input_tokens: 0`.
+  Enabling it would look like an optimization and change no bytes on the wire.
+- **Disabling extended thinking.** Already off — `providers.py:51` passes no `thinking` parameter, and
+  on Haiku 4.5 that means no thinking. Nothing to turn off.
+- **The `effort` parameter.** Not supported on Haiku 4.5 — it errors on that model.
+- **Preemptive TTS.** Measured no benefit (see the A/B above) and costs up to 4x in credits.
+
+### What this means for R1
+
+R1 wants no-lookup p95 **< 800 ms**. The LLM alone spends 630 ms mean and 907 ms max, before any
+speech is synthesized or any packet crosses the network. **R1 is not reachable by tuning this
+configuration** — every parameter-level lever is already at its floor or provably inert.
+
+Reaching it requires an architectural change, not a setting. The realistic options:
+
+1. **Play audio before the model answers.** The cadence/filler machinery for this already exists (R2),
+   but only fires on lookup turns. Extending a very short acknowledgment to no-lookup turns would cut
+   perceived TTFA to the filler's own latency. This changes what R1 measures, so it needs Hank's call.
+2. **Re-measure on the deployed worker.** These numbers are from a laptop; the Fly worker in `iad` sits
+   closer to the APIs and may shave real milliseconds off the network legs.
+3. **Accept and document the miss**, recording ~1.1 s p95 as the honest figure.
+
 ---
 
 ## T-16 STATUS (2026-08-14): observability fixed + two latency levers landed; deployed re-measurement still blocked on Cartesia credits
