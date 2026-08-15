@@ -1,5 +1,58 @@
 # Latency report: time-to-first-audio
 
+## 2026-08-15 — DEPLOYED measurement. Deploying does not close the R1 gap.
+
+The section below ("FIRST REAL MEASUREMENT") was measured from a laptop, and closed with
+the open option: *"Re-measure on the deployed worker. These numbers are from a laptop; the
+Fly worker in `iad` sits closer to the APIs and may shave real milliseconds off the network
+legs."* That has now been done. It shaved milliseconds off the median and nothing off p95.
+
+Run: room `deployed-r1-1786829812`, Fly app `jarvisforge` version 8, region `iad`, worker
+machine `2862ee5bd19558`. 8 turns driven from the chat-only (no-lookup) corpus via
+`scripts/drive_turns.py --token-url https://jarvisforge.fly.dev`. Numbers below are the
+**worker's own** `/app/var/latency.jsonl` (`first_audio_ts - turn_end_ts`), pulled off the
+machine over `flyctl ssh` — not the driver's client-side stopwatch (see the caveat below).
+
+| no-lookup TTFA | median | p95 | n |
+|---|---|---|---|
+| local laptop, preemptive off | 820 ms | 1130 ms | 8 |
+| **deployed worker (`iad`), preemptive off** | **730 ms** | **1122 ms** | **6** |
+
+R1 target is p95 < 800 ms. Deployed p95 is 1122 ms — the gap is ~320 ms and essentially
+unchanged from the laptop (1130 → 1122 ms is inside the noise). The median improved ~90 ms,
+which is the co-location benefit showing up where it can: on the fast path. It does not
+reach the tail, because the tail is not network — it is the serial STT-endpoint → LLM
+first-token → TTS first-byte chain decomposed in the section below.
+
+The deployed worker runs **preemptive TTS off**: `flyctl secrets list` shows no
+`JARVIS_PREEMPTIVE_TTS`, so this measures the same arm as the local "preemptive off" row.
+That is the cheap config, and per the A/B below it is also the correct one — the two arms
+were indistinguishable at n=8, so there is no reason to pay for speculative TTS.
+
+**Two caveats, both real:**
+
+1. **n=6, not 8.** The worker logged turns 2 and 4–8. Turn 1 was a memory-lookup turn
+   (`tool_ms > 0`, excluded by definition); turn 3 never produced a record. A p95 over 6
+   samples is effectively the max — treat 1122 ms as "the tail is still ~1.1 s", not as a
+   precise percentile. The median is the more trustworthy number here.
+2. **`drive_turns.py`'s client-side TTFA is not sound for this.** Its turn 3 reported
+   **−1211 ms** — a negative time-to-first-audio, which is impossible. The driver measures
+   from "my utterance finished playing" to "agent_state → speaking", and when turn
+   boundaries bleed (the agent answering while the next clip is still playing) that
+   subtraction goes negative; its turn 2 read 6617 ms against the worker's own 128 ms for
+   the same turn. **Use the worker-side `latency.jsonl` for any R1 claim.** The driver's
+   numbers are fine for "did a turn complete", useless for timing. This is a defect in
+   `scripts/drive_turns.py`, filed here rather than fixed.
+
+Retrieval:
+
+```
+flyctl ssh console -a jarvisforge --command "cat /app/var/latency.jsonl"
+```
+
+Note that flyctl prints its `No machine specified, using <id> in region iad` banner onto
+**stdout**, interleaved with the file, so filter to lines beginning `{` before parsing.
+
 ## 2026-08-15 — FIRST REAL MEASUREMENT. R1 is NOT met, and preemptive TTS is not the reason.
 
 Cartesia was upgraded on 2026-08-15, so for the first time the assistant could actually
