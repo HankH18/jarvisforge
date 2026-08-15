@@ -20,7 +20,13 @@
       "n": 3,
       "at": "2026-08-15T18:20-05:00",
       "head": "9b5b625+",
-      "verdict": "Ledger 29/35 resolved, no open claim. NEW P1: 23/25 close commits are empty - retro-receipting indistinguishable from implemented-under-claim. P2: T-10 failure evidence in /tmp. GOOD: Cartesia spend guard fired and was NOT routed around. REFUTED my own suspicion that full_verify was being skipped (470s/14 receipts = 34s each, above the 23s floor)."
+      "verdict": "Ledger 29/35 resolved, no open claim. NEW P1: 23/25 close commits are empty - retro-receipting indistinguishable from implemented-under-claim. P2: T-10 failure evidence in /tmp. GOOD: Cartesia spend guard fired and was NOT routed around. REFUTED my own suspicion that full_verify was being skipped (470s/14 receipts = 34s each, above the 23s floor). CORRECTION issued: my '23 of 25 close commits empty' was wrong - T-5's 2 files were my own watchdog scripts swept in by git add -A; correct count is 25/25."
+    },
+    {
+      "n": 4,
+      "at": "2026-08-15T18:47-05:00",
+      "head": "8a0223e+",
+      "verdict": "Ledger 30/35. NEW P1 ci-suites-never-executed: six harness suites wired into ci.yml but it triggers on pull_request only and all work lands on master - they have never run in Actions. NEW P2 circular-verify-pins: T-20/21/28 verifies re-pinned at suites authored the same session. Closed two of my own alarms: the 5 deleted receipts were a deliberate re-mint, and the ALLOW_CARTESIA_SPEND override was justified (verified all 3 checks independently; no spend, no deployment change). Credit: build session killed a false pass in its own suite and let a red test drive a real plan fix."
     }
   ]
 }
