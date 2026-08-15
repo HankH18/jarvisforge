@@ -24,7 +24,7 @@
 - **Depends on**: T-1 · **parallel_safe**: false
 - **Non-goals**: No concrete external tools (weather/github land in T-3/T-4)
 
-### T-3: Weather answers grounded in live Open-Meteo data  `[queue]`
+### T-3: Weather answers grounded in live Open-Meteo data  `[resolved]`
 - **Objective**: get_weather tool (geocode + forecast, keyless Open-Meteo) returning ToolResult; answers cite recency when asked (R8).
 - **Acceptance**: 1) get_weather returns pinned ToolResult shape for now/today/week using recorded API fixtures 2) Unknown location or API error yields ToolResult.error and a REFUSAL-path answer, not a guess 3) fetched_at populated; recency question answered from it (unit-tested)
 - **Verify**: `cd backend && uv run pytest tests/tools/test_weather.py -q`
