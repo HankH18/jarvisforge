@@ -176,11 +176,11 @@
 - **Depends on**: T-20 · **parallel_safe**: false
 - **Non-goals**: No change to the one-ticket-at-a-time rule; Does not introduce a lock server or any external coordination service
 
-### T-22: Evidence binds to the commit it certifies  `[queue]`
+### T-22: Evidence binds to the commit it certifies  `[resolved]`
 - **Objective**: verify_gate.sh writes a bare epoch timestamp to .claude/evidence/<T-id>.pass and nothing else, so a receipt records when a ticket passed but not what it passed. Reopening a ticket silently invalidates it: T-2.pass is stamped 06:27 while its last change is fd5b88b at 15:37, and T-6.pass is stamped 09:27 while its filler rebuild landed at 22:18. Both receipts now attest to code that no longer exists - T-6's describes macOS-say clips replaced hours ago. T-13's submission checklist consumes this directory, so the submission can report green against superseded work.
 - **Acceptance**: 1) A .pass receipt records the HEAD sha it was produced at, alongside the timestamp 2) A check reports any ticket whose last touching commit is newer than its receipt, and names them 3) That check is part of T-13's submission verification, so a stale receipt cannot report green 4) Re-running verify for a reopened ticket refreshes the receipt; the stale receipts for T-2 and T-6 are regenerated or explicitly reported as stale by this ticket's own check
-- **Verify**: `bash .claude/hooks/tests/run_evidence_tests.sh`
-- **Scope**: `.claude/hooks/**, scripts/**, .github/workflows/**`
+- **Verify**: `bash scripts/tests/run_evidence_tests.sh`
+- **Scope**: `scripts/**, .github/workflows/**`
 - **Depends on**: none · **parallel_safe**: true
 - **Non-goals**: Does not re-run or re-verify other tickets' work as a side effect; Does not delete existing receipts
 
@@ -275,7 +275,7 @@
 ### T-34: A missing receipt is a loud state, and every closed ticket has one  `[queue]`
 - **Objective**: .claude/evidence/ holds fingerprint receipts for every ticket that has closed except one -- T-22, the ticket that invented fingerprinting, which never minted its own -- plus T-13, which has no receipt because it legitimately cannot close yet (human-blocked, per its completion commit). verify_submission.sh's freshness gate (seeded by T-22) judges receipts that exist; a ticket with NO receipt must be its own explicit failure class, distinguished from STALE/UNVERIFIABLE, and mapped to the documented human-action list when that is the true cause -- otherwise absence reads as either an opaque failure or nothing at all.
 - **Acceptance**: 1) verify_submission.sh enumerates every ticket id in docs/tickets.json and reports each with no receipt as MISSING -- its own labeled failure, counted separately from STALE/UNVERIFIABLE in the run summary 2) T-22's receipt is minted by re-running its verify through the real verify_gate path (not hand-written), after T-34's last edit to any file in T-22's scope, and the freshness gate then reports it CURRENT as of T-34's completion -- acknowledging the recorded scope-granularity residual re-stales it on future scripts/** changes 3) T-13's MISSING maps in output to the human-action list in docs/SUBMISSION.md rather than presenting as unexplained -- without being exempted: it still fails the gate until the ticket truly closes 4) The evidence hook test suite gains MISSING-classification cases and all existing evidence tests pass unmodified beyond what T-28 already changed
-- **Verify**: `test -f .claude/evidence/T-22.json && bash .claude/hooks/tests/run_evidence_tests.sh && bash scripts/tests/run_require_db_wiring_tests.sh`
+- **Verify**: `test -f .claude/evidence/T-22.json && bash scripts/tests/run_evidence_tests.sh && bash scripts/tests/run_require_db_wiring_tests.sh`
 - **Scope**: `scripts/**, docs/**`
 - **Depends on**: T-33 · **parallel_safe**: false
 - **Non-goals**: Does not mint T-13's receipt or complete T-13 -- that closure is human-blocked; Does not relax the freshness gate for receipts that do exist

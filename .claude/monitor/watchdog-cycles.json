@@ -1,0 +1,14 @@
+{
+  "_comment": "Cycle counter for watchdog agent P. Hank asked for 20 cycles at 15-min intervals on 2026-08-15. Cycle 1 ran ad hoc before the loop was armed; cycles 2-21 are the 20 requested. When cycles_done reaches 21, delete the cron job and write the session summary.",
+  "requested_by": "Hank, 2026-08-15",
+  "target_last_cycle": 21,
+  "interval": "15m (cron 7-59/15 * * * *)",
+  "cycles": [
+    {
+      "n": 1,
+      "at": "2026-08-15T15:33-05:00",
+      "head": "36e1eef",
+      "verdict": "build green; harness not enforcing its protocol. 3 harness defects filed, 2 stale caveats corrected, 2 prior rejections re-confirmed."
+    }
+  ]
+}
