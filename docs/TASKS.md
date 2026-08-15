@@ -128,7 +128,7 @@
 - **Depends on**: T-6, T-14 · **parallel_safe**: false
 - **Non-goals**: No new filler assets; use the committed Cartesia clips; No semantic turn-detection model swaps
 
-### T-16: Meet R1: cut time-to-first-audio on no-lookup turns below 800ms p95  `[queue]`
+### T-16: Meet R1: cut time-to-first-audio on no-lookup turns below 800ms p95  `[resolved]`
 - **Objective**: Measured over 55 real deployed turns, no-lookup replies run p50 821ms / p95 1448ms against R1's 800ms p95 bar (docs/latency-report.md). Close the gap with the cheap levers first: LiveKit preemptive generation, TTS time-to-first-byte settings, and removing any avoidable round-trip on turns where no tool fires. Also fix the observability gaps found while measuring -- tool_ms is logged as 0.0 even when a tool fires, and `model` always logs CONVO_MODEL even on escalated turns -- so the report can tell lookup from no-lookup without the driver.
 - **Acceptance**: 1) tool_ms is populated with real tool time, and `model` reflects the model that actually answered the turn 2) A fresh >=50-turn deployed run is captured and docs/latency-report.md regenerated from it 3) p95 time-to-first-audio on no-lookup turns is <= 800ms -- or, if the cascaded pipeline cannot reach it, the report states the achieved figure and the specific remaining bottleneck with evidence rather than quietly missing the bar
 - **Verify**: `cd backend && uv run pytest tests/pipeline -q && uv run ruff check src`
