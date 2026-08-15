@@ -6,6 +6,11 @@
 # declared scope). T-13 extends this script (does not replace it) with the
 # four remaining checks its own acceptance criterion 3 names: repo private,
 # video file present, docs/TECHNICAL.md present, submission zip built.
+# T-31 adds a sixth check: the memory suite (backend/tests/memory), run
+# with JARVIS_MEMORY_TESTS_REQUIRE_DB=1 so an unreachable memory database
+# is a hard failure here, never a silent skip -- this script is that flag's
+# one owning context (see backend/tests/memory/conftest.py and
+# docs/TECHNICAL.md §5 for what it needs).
 #
 # Honesty convention (T-23 precedent, restated here because it governs every
 # check below): a condition this script cannot actually verify is a FAIL,
@@ -37,7 +42,7 @@ echo "== T-13 submission verification =="
 # 1. Evidence freshness gate (T-22) -- unchanged from the seed.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [1/5] evidence freshness gate (T-22) --"
+echo "-- [1/6] evidence freshness gate (T-22) --"
 if "${SCRIPT_DIR}/check_evidence_staleness.sh" "${PROJECT_DIR}"; then
   echo "verify_submission: evidence freshness OK"
 else
@@ -57,7 +62,7 @@ fi
 # remote, and never changes repo visibility -- it only ever reads.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [2/5] repo-private confirmation --"
+echo "-- [2/6] repo-private confirmation --"
 REMOTES="$(cd "$PROJECT_DIR" && git remote -v 2>/dev/null | awk '{print $1, $2}' | sort -u)"
 
 if [ -z "$REMOTES" ]; then
@@ -133,7 +138,7 @@ fi
 # exists, rather than accepting a placeholder.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [3/5] demo video file present --"
+echo "-- [3/6] demo video file present --"
 VIDEO_DIR="${PROJECT_DIR}/submission/video"
 VIDEO_FOUND=""
 if [ -d "$VIDEO_DIR" ]; then
@@ -158,7 +163,7 @@ fi
 # 4. docs/TECHNICAL.md present and covers the required topics.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [4/5] docs/TECHNICAL.md present --"
+echo "-- [4/6] docs/TECHNICAL.md present --"
 TECH_DOC="${PROJECT_DIR}/docs/TECHNICAL.md"
 if [ ! -f "$TECH_DOC" ]; then
   echo "verify_submission: FAILED -- ${TECH_DOC} does not exist." >&2
@@ -195,7 +200,7 @@ fi
 # .claude/claims) actually made it in.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [5/5] submission zip built --"
+echo "-- [5/6] submission zip built --"
 BUILD_ZIP="${PROJECT_DIR}/submission/build_zip.sh"
 ZIP_OUT="${PROJECT_DIR}/submission/jarvis-submission.zip"
 
@@ -229,6 +234,44 @@ else
       echo "verify_submission: submission zip check PASSED -- ${ZIP_OUT} is a valid zip (${FILE_COUNT} files), no excluded paths found, docs/TECHNICAL.md present."
     fi
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# 6. Memory suite verified against a reachable database (T-31).
+#
+# JARVIS_MEMORY_TESTS_REQUIRE_DB=1 (backend/tests/memory/conftest.py's
+# require_db fixture) turns an unreachable Postgres+pgvector into a hard
+# `pytest.fail()` instead of a loud-but-passing skip -- see docs/TECHNICAL.md
+# §5 and docs/ops-smoke-test.md for the full explanation. Before T-31,
+# NOTHING ever set that flag anywhere in this repo: a submission could go
+# out having only ever run the memory suite's contract/unit layer against
+# in-process fakes, with the integration layer silently skipped every
+# single time and the exit code never saying so. This check is that flag's
+# ONE owning context -- the submission gate never tolerates an unverified
+# memory path. Every plain ticket verify (`cd backend && uv run pytest
+# tests/memory -q`, no flag) is left tolerant on purpose (T-31 non-goal),
+# so an offline machine with no Postgres can still close unrelated
+# tickets; this is the only place the flag gets set.
+#
+# Fails CLOSED: this check FAILS on any non-zero exit from the command
+# below -- an unreachable database, a real test failure, a missing
+# `backend/` directory, or a missing `uv` -- there is no code path here
+# that reports PASSED without the command itself having exited 0.
+# ---------------------------------------------------------------------------
+echo
+echo "-- [6/6] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
+BACKEND_DIR="${PROJECT_DIR}/backend"
+
+if [ ! -d "$BACKEND_DIR" ]; then
+  echo "verify_submission: FAILED -- memory suite check: ${BACKEND_DIR} does not exist; cannot run 'uv run pytest tests/memory -q'." >&2
+  OVERALL_FAIL=1
+elif ! MEMORY_OUTPUT="$(cd "$BACKEND_DIR" && JARVIS_MEMORY_TESTS_REQUIRE_DB=1 uv run pytest tests/memory -q 2>&1)"; then
+  echo "$MEMORY_OUTPUT" | sed 's/^/  /' >&2
+  echo "verify_submission: FAILED -- memory suite check: 'cd backend && JARVIS_MEMORY_TESTS_REQUIRE_DB=1 uv run pytest tests/memory -q' did not exit 0. This means the memory database was unreachable (backend/tests/memory/conftest.py's require_db fixture turns that into a hard pytest.fail() when this flag is set) or a real test failed -- either way this is not a submittable state. See docs/TECHNICAL.md §5 for the credentials this check needs and docs/ops-smoke-test.md for what a green run of this suite proves." >&2
+  OVERALL_FAIL=1
+else
+  echo "$MEMORY_OUTPUT"
+  echo "verify_submission: memory suite check PASSED -- tests/memory ran with JARVIS_MEMORY_TESTS_REQUIRE_DB=1 (an unreachable database would have hard-failed, not skipped) and exited 0."
 fi
 
 # ---------------------------------------------------------------------------

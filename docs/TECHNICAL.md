@@ -293,6 +293,22 @@ T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-14, T-23) and report
 `UNVERIFIABLE` rather than a real current/stale verdict. See §6 and
 `docs/SUBMISSION.md` for what this means for submission and the remedy.
 
+**The submission gate is the one place that requires a reachable memory
+database (T-31).** `backend/tests/memory/conftest.py`'s `require_db`
+fixture defaults to *skipping* (loudly, per T-23) the mem0/pgvector
+integration tests when Postgres is unreachable, rather than failing —
+necessary so a plain `cd backend && uv run pytest tests/memory -q` stays
+closable on an offline dev machine or in CI (which SPEC C7 forbids adding
+a Postgres service to). `scripts/verify_submission.sh`'s check `[6/6]` is
+the single context that sets `JARVIS_MEMORY_TESTS_REQUIRE_DB=1`, which
+turns that skip into a hard `pytest.fail()` — so a submission can no
+longer go out having silently never exercised the memory integration
+layer. It needs a reachable Postgres+pgvector at `$JARVIS_TEST_DATABASE_URL`
+/ `$DATABASE_URL`, defaulting to
+`postgresql://jarvis:jarvis_dev_local_only@localhost:55432/jarvis` (start
+it with `cd backend && docker compose up -d`); see `docs/ops-smoke-test.md`
+for the full skip/hard-fail contract.
+
 ## 6. AI-usage note
 
 This project was built solo, one week, via Claude Code executing against a

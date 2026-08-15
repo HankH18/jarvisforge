@@ -27,8 +27,10 @@ ticket's own verify command unclosable on a machine with no Postgres:
    pass" a fully-run suite would produce.
 2. There is an explicit, named opt-in --
    $JARVIS_MEMORY_TESTS_REQUIRE_DB=1 -- that turns an unreachable database
-   into a hard `pytest.fail()` instead of a skip. The deployed/CI gate
-   context sets this; a local/offline dev machine does not have to.
+   into a hard `pytest.fail()` instead of a skip. scripts/verify_submission.sh
+   is the one context that actually sets this (T-31, its memory-suite
+   check); a local/offline dev machine, and every plain ticket verify, does
+   not have to.
 """
 
 from __future__ import annotations
@@ -48,8 +50,9 @@ _DEFAULT_TEST_DATABASE_URL = "postgresql://jarvis:jarvis_dev_local_only@localhos
 
 # Explicit, discoverable opt-in (T-23 acceptance #4): when truthy, an
 # unreachable database is a hard failure, not a skip. Documented in
-# docs/ops-smoke-test.md -- CI/deploy gating should set this; local/offline
-# dev should not need to.
+# docs/ops-smoke-test.md -- scripts/verify_submission.sh's memory-suite
+# check is the one context that sets this (T-31); local/offline dev should
+# not need to.
 _REQUIRE_DB_ENV_VAR = "JARVIS_MEMORY_TESTS_REQUIRE_DB"
 
 # Marker embedded in the skip reason so pytest_terminal_summary can find
