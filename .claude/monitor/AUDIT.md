@@ -165,7 +165,23 @@ would inflate it, not deflate it. **Not a finding. Do not re-raise from the timi
 
 1. **Retro-receipting: 23 of 25 `ticket-close` commits contain zero non-bookkeeping changes.**
    Counting files per close commit and excluding `heartbeat.jsonl`, `TASKS.md`, `evidence/`,
-   `claims/`: only T-5 carries real files (2). `ticket-close: T-33` and `T-34` are fully empty.
+   `claims/`: only T-5 appeared to carry real files (2). `ticket-close: T-33` and `T-34` are
+   fully empty.
+
+   **CORRECTION (18:30, same cycle).** T-5's two files were `.claude/monitor/fix_fingerprint.py`
+   and `.claude/monitor/check_fingerprint_drift.py` — **my own watchdog artifacts**, swept into
+   `ticket-close: T-5` by `cmd_close`'s `git add -A`. My exclusion filter missed them. So the
+   correct count is **25 of 25 close commits contain zero implementation**, and
+   `docs/LEDGER-PROVENANCE.md`'s stronger claim — "None were implemented between their
+   `ticket-start` and `ticket-close` commits" — is right where my filing was wrong. Recording
+   this because that document cites my numbers.
+
+   **Second-order finding from the same mistake (`monitor-writes-attributed-to-tickets`, P2):**
+   WATCHDOG.md instructs the watchdog to write to `.claude/monitor/**`, and `cmd_close`'s
+   `git add -A` then commits those writes under whatever ticket happens to be closing. Two
+   watchdog scripts are now permanently part of `ticket-close: T-5`, a memory ticket they have
+   nothing to do with. The observer cannot observe without leaving artifacts in the build's own
+   evidence trail — and anyone auditing T-5's close commit later will find watchdog tooling in it.
    Commit cadence confirms the shape — `ticket-close: T-x` is followed by `ticket-start: T-y`
    at **0–1 second** intervals, which no per-ticket contract read can fit inside.
    This is legitimate ledger repair after the harness sync stranded the receipts, and each
