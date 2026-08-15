@@ -192,7 +192,7 @@
 - **Depends on**: none · **parallel_safe**: false
 - **Non-goals**: Does not require CI to provision Postgres or Fly - SPEC C7 caps CI cost; Does not delete the skip; it makes the skip visible and non-passing
 
-### T-24: Verify commands cover their blast radius, and CI actually runs  `[queue]`
+### T-24: Verify commands cover their blast radius, and CI actually runs  `[resolved]`
 - **Objective**: Every ticket verify from T-1 onward is scoped to its own subdirectory, so a ticket can go green while breaking a sibling's tests; only T-0 runs the whole suite. The full suite and ruff live in .github/workflows/ci.yml, which triggers on pull_request - and the repo has zero git remotes and one branch, so that workflow has never executed once. The cross-ticket regression gate the project believes it has does not exist in either place.
 - **Acceptance**: 1) Closing any ticket runs a check that would fail if the change broke a test outside that ticket's scope 2) That check is cheap enough to run at every ticket boundary and does not violate SPEC C7's CI cost cap 3) The CI workflow is reachable: either a remote and PR flow exist, or the workflow triggers on something this repo actually does, or CLAUDE.md states plainly that CI is decorative and names the local command that replaces it 4) docs/TASKS.md records which verify commands are narrow by design and what covers the gap
 - **Verify**: `cd backend && uv run pytest -q && uv run ruff check src && cd ../frontend && npm run -s test -- --run`
