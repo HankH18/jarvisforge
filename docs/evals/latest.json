@@ -1,0 +1,373 @@
+{
+  "summary": {
+    "total_cases": 38,
+    "totals_by_verdict": {
+      "pass": 38
+    },
+    "totals_by_kind": {
+      "grounded": 17,
+      "refusal": 14,
+      "memory": 7
+    },
+    "max_fabrications": 0,
+    "max_wrong_refusals": 0,
+    "exit_code": 0,
+    "fail_reasons": [],
+    "draft": false,
+    "evidence": true
+  },
+  "provenance": {
+    "timestamp_utc": "2026-08-15T02:23:28Z",
+    "client": "anthropic",
+    "convo_model": "claude-haiku-4-5",
+    "tool_model": "claude-sonnet-5",
+    "model_used": "claude-haiku-4-5",
+    "golden_path": "evals/golden.jsonl",
+    "golden_approved_sha256": "f274a5c4cd0c306f1beb04fc77d015f5b6cb23892c2533e022ff98245b2ef053",
+    "golden_content_sha256": "f274a5c4cd0c306f1beb04fc77d015f5b6cb23892c2533e022ff98245b2ef053"
+  },
+  "cases": [
+    {
+      "case_id": "G-001",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The temperature in London right now is **30.5\u00b0C** (with an apparent temperature of 31.4\u00b0C). This reading was taken at 12:30 on August 13, 2026.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-002",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The high temperature in London today will be **35.2\u00b0C**.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-003",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "Based on the weather data provided, the maximum temperature forecast for London on August 15, 2026 is **25.7\u00b0C**.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-004",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "According to the weather data for London on August 18, 2026, the chance of rain is **27%**.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-005",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-006",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-007",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-008",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know. The tool results only provide current weather data for London as of August 13, 2026 at 12:30 PM (showing clear skies with no precipitation). They do not include a forecast for tomorrow, which is what you're asking about.",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-009",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The temperature in London right now is 30.5 degrees Celsius. The apparent temperature (what it feels like) is 31.4 degrees Celsius, with relatively low humidity at 32% and a light wind of 7.2 km/h.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-010",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The octocat/Hello-World repository has **3,766 stars** on GitHub.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-011",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The default branch of octocat/Hello-World is **master**.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-012",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The most recently opened pull request on octocat/Hello-World is **#10829**, titled \"Add author name to README\", opened by OliverJohn-git on 2026-08-13 at 07:05:42 UTC.\n\nYou can view it here: https://github.com/octocat/Hello-World/pull/10829",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-013",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "According to the GitHub data fetched on 2026-08-13, the octocat/Hello-World repository has **5,749 open issues**.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-014",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The issue number of the most recently opened issue on octocat/Hello-World is **10836**, opened at 2026-08-13T10:44:21Z.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-015",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "Based on the tool results provided, the author of the last merged pull request on octocat/Hello-World is **Spaceghost**. This is pull request #6, titled \"New line at end of file,\" which was merged on March 6, 2012.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-016",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "There are **36 comments** on pull request #6 in octocat/Hello-World.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-017",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "The octocat/Hello-World repository has **3766** stars on GitHub.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-018",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-019",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-020",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know. The tool results provided only contain data about open pull requests in the repository, and pull request #6 is not among them. To answer whether pull request #6 was merged and when, I would need data about closed or merged pull requests, which is not included in the supplied results.",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-021",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know whether issue #42 is still open on octocat/Hello-World. The supplied tool results contain repository metadata but do not include any information about issues, including the status of issue #42.",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-022",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "According to the tool result, the README of octocat/Hello-World says:\n\n```\nHello World!\n```\n\nThat is the entire content of the README file.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-023",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know. The repository digest exceeds the available token budget and has been truncated, so I cannot provide a detailed summary of what this repository does. The tool results indicate the digest is approximately 420,000 tokens but the budget limit is 150,000 tokens, preventing a complete analysis of the repository contents.",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-024",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-025",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "Yes. According to Jarvis's manifest, it can \"Remember facts and preferences you've shared in past sessions, and recall them in later sessions\" (R3).\n\nHowever, there is one important limitation: \"No multi-user sign-in or per-user personalization -- everyone currently shares one pool of memory and preferences.\"\n\nThis means Jarvis remembers things across your past conversations, but since there is no per-user sign-in, all users currently share the same memory pool.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-026",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "No, Jarvis does not support languages other than English. According to the manifest, \"No mobile app, no telephone/SIP calling, and no languages other than English\" is listed as a non-goal.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-027",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-028",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-029",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know. The supplied manifest data does not specify which speech-recognition model Jarvis uses internally. The manifest describes Jarvis's capabilities and limitations, but it does not detail the underlying speech-recognition technology or model version.",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-030",
+      "kind": "memory",
+      "expect": "answer",
+      "answer": "According to the memory data, you said your favorite programming language is Rust.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-031",
+      "kind": "memory",
+      "expect": "answer",
+      "answer": "Based on the information available, you are allergic to peanuts.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-032",
+      "kind": "memory",
+      "expect": "answer",
+      "answer": "You work at Acme Corp as a backend engineer.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-033",
+      "kind": "memory",
+      "expect": "answer",
+      "answer": "Based on the memory data supplied, boss, you said your favorite programming language is Kotlin.",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-034",
+      "kind": "memory",
+      "expect": "refuse",
+      "answer": "I don't know. The tool results provided only contain information about your coffee preference (dark roast), not your favorite sports team.",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-035",
+      "kind": "memory",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-036",
+      "kind": "memory",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-037",
+      "kind": "refusal",
+      "expect": "refuse",
+      "answer": "I don't know",
+      "refused": true,
+      "verdict": "pass",
+      "detail": ""
+    },
+    {
+      "case_id": "G-038",
+      "kind": "grounded",
+      "expect": "answer",
+      "answer": "No, Jarvis does not support Spanish. According to the manifest, one of Jarvis's non-goals is \"No mobile app, no telephone/SIP calling, and no languages other than English.\"",
+      "refused": false,
+      "verdict": "pass",
+      "detail": ""
+    }
+  ]
+}
