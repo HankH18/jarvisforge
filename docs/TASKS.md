@@ -200,7 +200,7 @@
 - **Depends on**: none · **parallel_safe**: false
 - **Non-goals**: Does not add CI jobs, matrices, or e2e runs - SPEC C7 is a hard constraint; Does not widen any existing ticket's verify command retroactively
 
-### T-25: Machine-enforce the golden-set human approval gate  `[queue]`
+### T-25: Machine-enforce the golden-set human approval gate  `[resolved]`
 - **Objective**: T-7's acceptance 2 requires a human's review of evals/golden.jsonl, recorded in the _meta header. verify_gate.sh runs one command - evals.run - which reads the cases and never inspects approved_by, so the ticket's gate is structurally incapable of checking its own acceptance criterion. The project's R6a claim is that the golden set is EXTERNAL ground truth; nothing in the harness distinguishes an externally reviewed set from one signed in place.
 - **Acceptance**: 1) evals.run exits NON-ZERO while _meta.approved_by or _meta.approved_at is empty, unless explicitly asked for a draft run 2) The non-zero path cannot be bypassed by a flag, env var, or argument that a build agent would reach for; a draft run is obtained by an explicit, clearly-named draft mode that prints that its result is not evidence 3) Tests cover both directions using a SYNTHETIC approved fixture in tmp_path; the real evals/golden.jsonl is never modified by the test 4) docs/tickets.json T-7 verify is updated to assert approval, so the gate and the acceptance criterion agree 5) This ticket never sets approved_by or approved_at, and never edits evals/golden.jsonl - it exists to protect the gate, not to pass through it
 - **Verify**: `cd backend && uv run pytest tests/grounding -q`
