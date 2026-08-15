@@ -89,10 +89,18 @@ def fingerprint(scope):
     return h.hexdigest()
 
 def changed_since(commit):
-    subprocess.run(["git", "add", "-A"], cwd=ROOT)
-    r = subprocess.run(["git", "diff", "--name-only", commit], capture_output=True, text=True, cwd=ROOT)
-    s = subprocess.run(["git", "diff", "--name-only", "--cached", commit], capture_output=True, text=True, cwd=ROOT)
-    return sorted(set(r.stdout.splitlines()) | set(s.stdout.splitlines()))
+    """Files touched since `commit`, WITHOUT mutating the index.
+
+    This used to run `git add -A` first, so the documented, inspection-sounding
+    `harness_lib.py integrity <T-id> <commit>` subcommand silently staged the
+    caller's entire working tree -- untracked files included -- corrupting the
+    staging area of any live build session that ran it.
+    """
+    def _lines(*args):
+        return subprocess.run(["git", *args], capture_output=True, text=True, cwd=ROOT).stdout.splitlines()
+    return sorted(set(_lines("diff", "--name-only", commit))
+                  | set(_lines("diff", "--name-only", "--cached", commit))
+                  | set(_lines("ls-files", "--others", "--exclude-standard")))
 
 def integrity(tid, start_commit):
     """Every file changed during the ticket must be in scope or meta-allowed.
@@ -104,13 +112,34 @@ def integrity(tid, start_commit):
                          or match_any(p, HARNESS_STATE, raw=True))]
     return bad
 
+_ROOT_RELATIVE = ("scripts/", "docs/", ".claude/", "backend/", "frontend/")
+
+def _cd_leaks_into_root_relative_path(cmd):
+    """The T-23 defect: a bare `cd` persisting across `&&` into a leg that uses a
+    repo-root-relative path (which then silently resolves under the cd'd dir).
+    A single leading `cd backend && ...` whose legs stay inside backend/ is fine --
+    that is the ~21 legacy strings T-28 acceptance-3 requires to keep passing."""
+    m = re.search(r"(?<![($])\bcd\s+(\S+)\s*&&", cmd)
+    if not m:
+        return False
+    tail = cmd[m.end():]
+    return any(re.search(r"(?<![\w./-])" + re.escape(p), tail) for p in _ROOT_RELATIVE)
+
 LINT_RULES = [
     (r"\|\|\s*true", "'|| true' makes the gate pass unconditionally"),
-    (r"(?<![($])\bcd\s+\S+\s*&&", "bare 'cd' across '&&' persists directory state; use a subshell '(cd X && ...)'"),
+    (r";\s*(true|:)\s*$", "trailing '; true' makes the gate pass unconditionally"),
+    (r"\|\|\s*:", "'|| :' makes the gate pass unconditionally"),
+    (_cd_leaks_into_root_relative_path,
+     "a bare 'cd' persists across '&&' into a leg using a repo-root-relative path; "
+     "wrap it in a subshell '(cd X && ...)'"),
     (r"^\s*echo\b(?!.*&&)", "echo-only verify is self-test evidence, not grounding evidence"),
 ]
 def lint_verify(cmd):
-    return [msg for rx, msg in LINT_RULES if re.search(rx, cmd)]
+    out = []
+    for rule, msg in LINT_RULES:
+        if rule(cmd) if callable(rule) else re.search(rule, cmd):
+            out.append(msg)
+    return out
 
 # ---------------- lifecycle (moved here so the harness needs only python3+git, no jq) ------------
 def _git(*a): return subprocess.run(["git", *a], capture_output=True, text=True, cwd=ROOT)
@@ -157,7 +186,12 @@ def cmd_close():
         return msg, 2
     if subprocess.run(t["verify"], shell=True, cwd=ROOT).returncode != 0: return fail()
     full = load_tickets().get("full_verify")
-    if full and subprocess.run(full, shell=True, cwd=ROOT).returncode != 0:
+    if not full:
+        return ("NO REGRESSION GATE: docs/tickets.json has no 'full_verify' key, so closing "
+                "would run only this ticket's narrow verify. harness-protocol.md rule 5 promises "
+                "a full regression run at every close. Add a top-level 'full_verify' command to "
+                "docs/tickets.json before closing."), 2
+    if subprocess.run(full, shell=True, cwd=ROOT).returncode != 0:
         return fail(" (cross-ticket regression gate)")
     _git("add", "-A"); _git("commit", "-q", "--allow-empty", "-m", f"ticket-close: {tid}")
     fp = fingerprint(t["scope"])
