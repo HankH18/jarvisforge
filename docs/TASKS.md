@@ -1,6 +1,6 @@
 # Task Graph (GENERATED from tickets.json — do not hand-edit)
 
-### T-0: Repo skeleton, test harness, lint, light CI green on empty suite  `[queue]`
+### T-0: Repo skeleton, test harness, lint, light CI green on empty suite  `[resolved]`
 - **Objective**: Bootstrap so every downstream verify command is runnable: Python backend (uv, pytest, ruff), Vite React frontend (vitest), scripts dir, light GHA workflow, .env.example.
 - **Acceptance**: 1) backend/ initialized with uv; pytest and ruff configured; empty suite passes 2) frontend/ Vite React TS scaffold builds; vitest configured with one trivial passing test 3) .github/workflows/ci.yml: single job, ruff + pytest, pull_request trigger only 4) .env.example lists every env var named in DESIGN.md; no secrets committed
 - **Verify**: `cd backend && uv run pytest -q && uv run ruff check src && cd ../frontend && npm run -s build`
