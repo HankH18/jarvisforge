@@ -1,0 +1,9 @@
+{
+ "ticket": "T-4",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "cd backend && uv run pytest tests/tools/test_github.py -q",
+ "commit": "398d8ad0f10e68fe43bcd97b877f228033516b8a",
+ "fingerprint": "c654c957f2de67b2d209d36dfc1196ba05f526d6e01929504826804bd3793944",
+ "attempts": 0,
+ "ts": 1786835469
+}

@@ -32,7 +32,7 @@
 - **Depends on**: T-2 · **parallel_safe**: true
 - **Non-goals**: No paid weather providers; no caching layer
 
-### T-4: GitHub Q&A grounded in live repo data with graceful oversize degradation  `[queue]`
+### T-4: GitHub Q&A grounded in live repo data with graceful oversize degradation  `[resolved]`
 - **Objective**: load_repo_digest (gitingest, cached by (repo, head_sha), 15-min TTL, token budget) and github_query (githubkit GraphQL: open_prs, open_issues, pr_comments, last_merges, repo_meta), both heavy-tagged (R7).
 - **Acceptance**: 1) Both tools return pinned ToolResult shapes against recorded fixtures for a pinned public repo snapshot 2) Digest exceeding token_budget triggers targeted-query degradation, never truncated-content answering (unit-tested) 3) Cache hit on unchanged head_sha within TTL (unit-tested) 4) Invalid/private/nonexistent URL yields ToolResult.error -> REFUSAL path
 - **Verify**: `cd backend && uv run pytest tests/tools/test_github.py -q`
