@@ -688,9 +688,8 @@
     "That check is part of T-13's submission verification, so a stale receipt cannot report green",
     "Re-running verify for a reopened ticket refreshes the receipt; the stale receipts for T-2 and T-6 are regenerated or explicitly reported as stale by this ticket's own check"
    ],
-   "verify": "bash .claude/hooks/tests/run_evidence_tests.sh",
+   "verify": "bash scripts/tests/run_evidence_tests.sh",
    "scope": [
-    ".claude/hooks/**",
     "scripts/**",
     ".github/workflows/**"
    ],
@@ -1055,7 +1054,7 @@
     "T-13's MISSING maps in output to the human-action list in docs/SUBMISSION.md rather than presenting as unexplained -- without being exempted: it still fails the gate until the ticket truly closes",
     "The evidence hook test suite gains MISSING-classification cases and all existing evidence tests pass unmodified beyond what T-28 already changed"
    ],
-   "verify": "test -f .claude/evidence/T-22.json && bash .claude/hooks/tests/run_evidence_tests.sh && bash scripts/tests/run_require_db_wiring_tests.sh",
+   "verify": "test -f .claude/evidence/T-22.json && bash scripts/tests/run_evidence_tests.sh && bash scripts/tests/run_require_db_wiring_tests.sh",
    "scope": [
     "scripts/**",
     "docs/**"
