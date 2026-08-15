@@ -176,7 +176,8 @@ in project memory for the fuller reasoning).
   R8.
 - **Deliberately light CI (C7)**: lint + unit only, PR-triggered, no
   matrix/e2e — a stated cost constraint, not an oversight (see §5's CI
-  note: it has in fact never executed once for this project).
+  note: the repo now has a GitHub remote a PR can run against, but no PR
+  has actually exercised the workflow yet).
 
 ## 4. Bonuses that landed
 
@@ -279,12 +280,18 @@ copies are guarded against drifting apart by
 instance of a broader pattern in this project: work can be built and unit
 tested while never actually being connected to what ships.
 
-**CI is decorative for this project.** `.github/workflows/ci.yml` runs
-lint + unit tests on `pull_request`, but this repo has zero git remotes and
-one branch (the submission target is a self-hosted GitLab instance, not
-GitHub — see `CLAUDE.md`), so no PR has ever opened here and the workflow
-has never executed once. The real regression gate has been
-`.claude/hooks/verify_gate.sh`, run locally at every ticket boundary.
+**CI is reachable but unproven.** `.github/workflows/ci.yml` runs a
+`backend` job (lint + unit tests) and a `frontend` job (lint, build, unit
+tests) on `pull_request`. The repo now has a `github` remote
+(https://github.com/HankH18/jarvisforge) in addition to the `gitlab`
+submission remote (self-hosted, not GitHub — see `CLAUDE.md`), so a PR
+opened against the `github` remote will actually run this workflow; as of
+this writing no PR has been opened, so it has not been observed to execute
+in GitHub Actions itself — only every step's command run and confirmed
+passing locally. The local gate story also changed: the `cc-factory:
+harness sync` deleted `.claude/hooks/verify_gate.sh`, so there is no
+longer a single local regression-gate script run at every ticket boundary
+(see `docs/HARNESS-BLOCKER-2026-08-14.md`).
 
 **Evidence staleness.** `scripts/check_evidence_staleness.sh` (T-22) can
 only detect staleness for tickets whose `.claude/evidence/*.pass` receipt

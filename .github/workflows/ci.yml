@@ -1,14 +1,21 @@
 name: CI
 
-# SPEC C7: keep CI light — one job, pull_request only, no matrix, no e2e.
+# SPEC C7: keep CI light — two small jobs, pull_request only, no matrix, no e2e.
 #
-# T-24: this workflow is DECORATIVE for this project. This repo has zero
-# git remotes and one branch (submission target is a self-hosted GitLab at
-# labs.gauntletai.com, not GitHub — see the global Gauntlet AI setup), so
-# no `pull_request` ever opens here and this workflow has never executed.
-# The actual regression gate is local: .claude/hooks/verify_gate.sh, run
-# by the TaskCompleted hook at every ticket boundary. See CLAUDE.md §"CI
-# reachability" and docs/TASKS.md §"Verify scope, and what covers the gap".
+# CI reachability: this repo now has two git remotes — `github`
+# (https://github.com/HankH18/jarvisforge, private) and `gitlab`
+# (the actual Gauntlet AI submission target, self-hosted at
+# labs.gauntletai.com — see CLAUDE.md). A pull request opened against the
+# `github` remote will run this workflow. As of this writing no PR has
+# actually been opened, so this workflow is reachable but unproven — it
+# has not been observed to execute or pass in GitHub Actions itself, only
+# verified by running every step's command locally.
+#
+# The local gate story changed too: the `cc-factory: harness sync` commit
+# deleted `.claude/hooks/verify_gate.sh` along with the hook test scripts
+# this workflow used to call, so there is currently no single local
+# regression-gate script to point to. See
+# docs/HARNESS-BLOCKER-2026-08-14.md for the full detail.
 on:
   pull_request:
 
@@ -28,8 +35,25 @@ jobs:
       - name: Test
         run: cd backend && uv run pytest -q
 
-      - name: Scope guard hook tests
-        run: bash .claude/hooks/tests/run_scope_guard_tests.sh
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Claim ownership hook tests
-        run: bash .claude/hooks/tests/run_claim_tests.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: cd frontend && npm ci
+
+      - name: Lint
+        run: cd frontend && npm run -s lint
+
+      - name: Build
+        run: cd frontend && npm run -s build
+
+      - name: Test
+        run: cd frontend && npm run -s test -- --run
