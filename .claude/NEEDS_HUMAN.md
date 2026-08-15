@@ -389,3 +389,82 @@ so the gate is reading the worse copy of the same receipt and reporting UNVERIFI
 forbids me editing the plan. No code was changed for this finding.
 
 - [2026-08-15T23:15:26Z] T-10 released by cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef: close verify failed; log at /tmp/failed_T-10.log
+
+---
+
+## 2026-08-15 18:20 CDT — watchdog P, cycle 3
+
+**THE PATCH WINDOW IS OPEN RIGHT NOW.** No claim is open (29/35 resolved, 6 queued, nothing
+in progress). The fingerprint fix I wrote and tested earlier can be applied safely this minute;
+once someone claims a ticket, patching `harness_lib.py` will fail that ticket's integrity check
+because `.claude/scripts/**` is neither in scope nor meta-exempt:
+
+    python3 .claude/monitor/fix_fingerprint.py .claude/scripts/harness_lib.py --check   # dry run
+    python3 .claude/monitor/fix_fingerprint.py .claude/scripts/harness_lib.py           # apply
+    python3 .claude/monitor/check_fingerprint_drift.py                                  # verify
+
+**1. Decision needed — the ledger now says 29/35 resolved, but 23 of those receipts attest to
+zero work done under claim.** Counting non-bookkeeping files in each `ticket-close` commit:
+23 of 25 are empty; `ticket-close: T-x` is followed by `ticket-start: T-y` at 0–1 second
+intervals. This is legitimate repair of the ledger the harness sync broke, and every ticket's
+real verify plus the full regression gate genuinely ran and passed — I confirmed the gate is
+executing (~34s/ticket against a measured 23s floor), so the verification evidence is sound.
+The gap is that **a receipt cannot express which kind it is.** Anyone reading `.claude/evidence/`
+sees 29 identical attestations. If this ledger is part of what you submit, that distinction
+matters. Cheapest fix is a `retroactive: true` field on receipts minted with an empty close
+commit — but the schema is in PROTECTED `harness_lib.py`, so it is your call, not an agent's.
+
+**2. Good news worth reading — your spend guard worked, and the agent respected it.** T-10's
+close FAILED because `scripts/load_smoke.sh` refused to run without `ALLOW_CARTESIA_SPEND=1`,
+citing the ~20,000 credits burned in ~13 minutes previously. Setting one env var would have
+forced the close and completed a 30/35 run. The session **released the ticket and logged the
+reason instead**. That is the correct call under exactly the pressure where cutting the corner
+would have been easiest, and it is the strongest behavioral signal I have seen from this build.
+T-10 is correctly still `queue`.
+
+**3. Minor, but fix it before the evidence evaporates.** The release note for T-10 (line 391
+above) points at `/tmp/failed_T-10.log` — machine-local, gone on reboot, invisible to anyone
+else reading the repo. The one ticket that failed has the least durable evidence of any of them.
+I read it while it still exists; the cause is recorded in AUDIT.md and in item 2 above.
+`cmd_release` should inline the reason or write it under `.claude/monitor/`.
+
+**Also refuted, so you do not chase it:** I suspected the regression gate was being skipped,
+because receipts were landing 23–30s apart while `full_verify` measures 23s. It is not being
+skipped — their heartbeat shows a single 470-second window with zero tool calls in which 14
+receipts were minted (~34s each), i.e. one scripted Bash loop. Tested and dropped.
+
+---
+
+## Watchdog cycle-3 items: what an agent could take, and what is left for you (2026-08-15, session cced6b0e)
+
+Three items filed by watchdog P at 18:20. Two are now handled, one needs you.
+
+**HANDLED — `stale-ci-unproven`.** Already fixed in `ci.yml` before the filing landed;
+`docs/TECHNICAL.md` still carried the contradiction (line 180 said "no PR has actually
+exercised the workflow yet" while line 283 said "proven green"). Corrected, and the job
+list updated — it described two jobs when there are now three (`harness` was added).
+
+**HANDLED as far as an agent can — `failure-evidence-in-tmp`.** T-10's failure cause is
+now recorded permanently in `docs/LEDGER-PROVENANCE.md` rather than living only at
+`/tmp/failed_T-10.log`. The other half of the watchdog's suggestion — making
+`cmd_release` inline the reason instead of pointing at a temp path — is in PROTECTED
+`harness_lib.py` and still needs you.
+
+**NEEDS YOU — `retro-receipting-indistinguishable`.** The watchdog is right and the
+finding is important enough that I have written it up in full at
+`docs/LEDGER-PROVENANCE.md`. The short version: the ledger now reads 29/35, every one of
+those receipts is honestly earned (each close really did run the ticket verify plus the
+522-test backend suite, ruff, 105 frontend tests and a production build), **but not one
+of them attests that the work was implemented under its claim.** For nearly all of them
+the deliverable already existed and the claim/close cycle re-ran verification against it.
+That is legitimate ledger repair; it is simply not readable as such from the receipt.
+
+The fix — a `retroactive: true` field or a provenance note in the receipt schema — lives
+in PROTECTED `harness_lib.py`. Until it exists, `docs/LEDGER-PROVENANCE.md` is the record,
+and the honest one-line summary of the ledger is:
+
+> 29 of 35 tickets have a verified-at-a-commit receipt. Zero of 35 have a receipt proving
+> the work was done under that claim.
+
+I would rather you hear that from me than discover it from the graph.
+

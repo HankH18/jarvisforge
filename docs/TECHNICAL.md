@@ -175,9 +175,9 @@ in project memory for the fuller reasoning).
 - **Open-Meteo**: keyless, free, live — lowest-friction grounding demo for
   R8.
 - **Deliberately light CI (C7)**: lint + unit only, PR-triggered, no
-  matrix/e2e — a stated cost constraint, not an oversight (see §5's CI
-  note: the repo now has a GitHub remote a PR can run against, but no PR
-  has actually exercised the workflow yet).
+  matrix/e2e — a stated cost constraint, not an oversight. It is no longer
+  unproven: PR #1 ran it on 2026-08-15 (run `31901208728`, success in 48s).
+  See §5 for what a green run does and does not cover.
 
 ## 4. Bonuses that landed
 
@@ -281,10 +281,18 @@ instance of a broader pattern in this project: work can be built and unit
 tested while never actually being connected to what ships.
 
 **CI runs, and is proven green — as of 2026-08-15.**
-`.github/workflows/ci.yml` runs a `backend` job (lint + unit tests) and a
-`frontend` job (lint, build, unit tests) on `pull_request`, against the
+`.github/workflows/ci.yml` runs three jobs on `pull_request`: `backend`
+(lint + unit tests), `frontend` (lint, build, unit tests), and `harness`
+(the four shell suites under `scripts/tests/` — evidence receipts, scope
+guard, verify_submission DB wiring, smoke exit codes). It runs against the
 `github` remote (https://github.com/HankH18/jarvisforge; the `gitlab`
 submission remote is self-hosted, not GitHub — see `CLAUDE.md`).
+
+The `harness` job was added 2026-08-15. Before it, no workflow referenced
+anything under `scripts/tests/`, so those suites ran only when a ticket
+closed on a developer's laptop and never again. It deliberately omits
+`run_claim_tests.sh`, which is 36/38 — the workflow comment records why
+and what has to land before it can be added.
 
 PR #1 was the first pull request this repo ever had, and its first run
 **failed in 4 seconds**: `astral-sh/setup-uv@v10` does not resolve — that
