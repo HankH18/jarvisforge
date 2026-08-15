@@ -54,21 +54,43 @@ export function useClerkAuth(): AuthState {
 
   useEffect(() => {
     let cancelled = false
+    // Set only once `clerk.addListener` has actually returned it -- see the
+    // cleanup below for why an early, pre-subscribe unmount never needs it.
+    let unsubscribe: (() => void) | undefined
 
     loadClerk().then((clerk) => {
+      // Cleanup already ran (unmounted, or effect re-ran) before the load
+      // settled: skip setState *and* addListener entirely, so no listener
+      // is ever registered and there is nothing left to unsubscribe.
       if (cancelled) return
       if (!clerk) {
         setState(UNAVAILABLE_AUTH)
         return
       }
       setState(stateFromClerk(clerk))
-      clerk.addListener(() => {
+      const unsub = clerk.addListener(() => {
         if (!cancelled) setState(stateFromClerk(clerk))
       })
+      if (typeof unsub === 'function') {
+        unsubscribe = unsub
+      } else {
+        // ClerkClient's contract (./clerk.ts) is `addListener(): () => void`
+        // -- always an unsubscribe. A client that hands back undefined/void
+        // anyway is a real bug (the listener above can now never be
+        // removed), so this is surfaced loudly rather than swallowed; it's
+        // still handled defensively -- no throw, no crash -- since there is
+        // no unsubscribe function to invoke.
+        console.error(
+          '[jarvis] ClerkClient.addListener did not return an unsubscribe function; ' +
+            'this listener cannot be cleaned up on unmount.',
+          unsub,
+        )
+      }
     })
 
     return () => {
       cancelled = true
+      unsubscribe?.()
     }
   }, [])
 
