@@ -13,6 +13,11 @@ function joinErrorMessage(err: unknown): string {
   return "Couldn't join the room. Check your connection and try again."
 }
 
+/** User-facing copy for a failed mic toggle. The underlying error is logged, not shown. */
+function micErrorMessage(_err: unknown): string {
+  return "Couldn't change the microphone. Check permissions and try again."
+}
+
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 export interface TranscriptLine {
@@ -91,6 +96,10 @@ export function useJarvisSession(options?: UseJarvisSessionOptions): JarvisSessi
   const mountedRef = useRef(true)
   const micEnabledRef = useRef(micEnabled)
   micEnabledRef.current = micEnabled
+  // Guards toggleMic against overlapping invocations (e.g. two rapid clicks):
+  // a toggle that arrives while one is still in flight is a no-op rather than
+  // racing the in-flight call and transposing the reported state.
+  const micTogglingRef = useRef(false)
 
   const teardownSubscriptions = useCallback(() => {
     for (const unsub of unsubscribersRef.current) unsub()
@@ -177,9 +186,30 @@ export function useJarvisSession(options?: UseJarvisSessionOptions): JarvisSessi
   const toggleMic = useCallback(async () => {
     const session = sessionRef.current
     if (!session) return
+    // Overlapping-toggle guard: ignore a second toggle while one is still
+    // resolving rather than racing it (which could leave micEnabled showing
+    // the opposite of the last-requested state).
+    if (micTogglingRef.current) return
+    micTogglingRef.current = true
     const next = !micEnabledRef.current
-    setMicEnabled(next)
-    await session.setMicrophoneEnabled(next)
+    try {
+      // Only report the new state once LiveKit has actually confirmed it.
+      // Flipping optimistically here would show the opposite of reality on
+      // rejection (permissions / device / network) -- and this call site is
+      // invoked with `void` by its caller, so the promise must never reject.
+      await session.setMicrophoneEnabled(next)
+      if (!mountedRef.current) return
+      setMicEnabled(next)
+      setError(null)
+    } catch (err) {
+      // The actual mic state is unchanged (the request never took effect),
+      // so leaving micEnabled untouched already reflects reality -- just
+      // surface the failure instead of swallowing it.
+      console.error('[jarvis] toggleMic failed', err)
+      if (mountedRef.current) setError(micErrorMessage(err))
+    } finally {
+      micTogglingRef.current = false
+    }
   }, [])
 
   useEffect(() => {

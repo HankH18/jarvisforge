@@ -162,6 +162,98 @@ describe("useJarvisSession", () => {
     expect(session.micCalls.at(-1)).toBe(true);
   });
 
+  it("toggleMic(): does not flip micEnabled until setMicrophoneEnabled resolves", async () => {
+    const { session, result } = setUp();
+    await act(async () => {
+      await result.current.join();
+    });
+    expect(result.current.micEnabled).toBe(true);
+
+    let resolveMic!: () => void;
+    session.setMicrophoneEnabled = (enabled) => {
+      session.micCalls.push(enabled);
+      return new Promise((resolve) => {
+        resolveMic = () => resolve();
+      });
+    };
+
+    let togglePromise!: Promise<void>;
+    act(() => {
+      togglePromise = result.current.toggleMic();
+    });
+    // The SDK call hasn't resolved yet: the UI must still show the real state.
+    expect(result.current.micEnabled).toBe(true);
+
+    await act(async () => {
+      resolveMic();
+      await togglePromise;
+    });
+    expect(result.current.micEnabled).toBe(false);
+  });
+
+  it("toggleMic(): a setMicrophoneEnabled rejection leaves micEnabled at the real state and surfaces an error, without rejecting", async () => {
+    const { session, result } = setUp();
+    await act(async () => {
+      await result.current.join();
+    });
+    expect(result.current.micEnabled).toBe(true);
+
+    session.setMicrophoneEnabled = async (enabled) => {
+      session.micCalls.push(enabled);
+      throw new Error("mic permission denied");
+    };
+
+    let togglePromise!: Promise<void>;
+    act(() => {
+      togglePromise = result.current.toggleMic();
+    });
+
+    // The exported function must never reject: it is invoked with `void` at
+    // its call site, and an unhandled rejection there would otherwise crash
+    // the test / surface as an unhandled rejection in the browser.
+    await expect(act(async () => {
+      await togglePromise;
+    })).resolves.toBeUndefined();
+
+    // The real mic never actually changed state (the request failed), so the
+    // UI must still report the mic as enabled -- not the flipped value.
+    expect(result.current.micEnabled).toBe(true);
+    expect(result.current.error).toBeTruthy();
+  });
+
+  it("toggleMic(): overlapping toggles -- a second toggle while one is in flight is ignored, not raced", async () => {
+    const { session, result } = setUp();
+    await act(async () => {
+      await result.current.join();
+    });
+    expect(result.current.micEnabled).toBe(true);
+
+    let resolveMic!: () => void;
+    session.setMicrophoneEnabled = (enabled) => {
+      session.micCalls.push(enabled);
+      return new Promise((resolve) => {
+        resolveMic = () => resolve();
+      });
+    };
+
+    let firstToggle!: Promise<void>;
+    let secondToggle!: Promise<void>;
+    act(() => {
+      firstToggle = result.current.toggleMic();
+      secondToggle = result.current.toggleMic();
+    });
+
+    await act(async () => {
+      resolveMic();
+      await Promise.all([firstToggle, secondToggle]);
+    });
+
+    // Only the first toggle's request should have reached the SDK; the
+    // second (while the first was in flight) must be a no-op.
+    expect(session.micCalls).toEqual([false]);
+    expect(result.current.micEnabled).toBe(false);
+  });
+
   it("unmounting while connected disconnects the session (no leaked session)", async () => {
     const { session, result, unmount } = setUp();
     await act(async () => {
