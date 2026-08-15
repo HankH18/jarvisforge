@@ -1,6 +1,6 @@
 # What the ticket ledger actually attests
 
-Written 2026-08-15, when the ledger went from 5 resolved to 29 of 35 in a single
+Written 2026-08-15, when the ledger went from 5 resolved to 30 of 35 in a single
 afternoon. That jump is real work being recorded, not work being done — and a reader
 who assumes otherwise will over-trust the number. This document says exactly what a
 receipt in `.claude/evidence/` does and does not claim.
@@ -18,7 +18,7 @@ A receipt (`.claude/evidence/<T-id>.json`) asserts exactly this:
 > cross-ticket regression suite ran and passed, and the content of the ticket's
 > declared scope hashed to `<fingerprint>`.
 
-That is a real, re-checkable claim, and every one of the 29 was earned: each close ran
+That is a real, re-checkable claim, and every one of the 30 was earned: each close ran
 the ticket's own verify plus `full_verify` (522 backend tests + `ruff check src tests`,
 105 frontend tests + a production build), about 34 s per ticket, comfortably above the
 23 s floor a genuine `full_verify` run takes. Nothing was rubber-stamped.
@@ -35,7 +35,7 @@ repair: it replaces "unknown" with "verified at this commit". It is not the same
 as "built and verified under supervision", and the receipt schema has no field that
 distinguishes them.
 
-Concretely, of the 29:
+Concretely, of the 30:
 
 - **None** were implemented between their `ticket-start` and `ticket-close` commits.
 - **T-22 and T-34** had their deliverables built earlier the same session (the ported
@@ -118,3 +118,18 @@ deployed state:
 
 T-10 was the only ticket whose close ever failed. It is now closed; see the section above
 for why the spend guard was satisfied rather than bypassed.
+
+## A note on why "all receipts CURRENT" is not a reachable state
+
+Worth stating so nobody chases it. Fifteen tickets carry a `docs/**` glob in their scope,
+so **any** documentation commit — including this file — re-stales every one of their
+receipts as SCOPE-OVERLAP drift. The ledger cannot be simultaneously fully documented and
+fully CURRENT while the plan's scope globs stay this coarse.
+
+That is not a defect in the receipts or in the drift checker; both are reporting the truth.
+It is the scope-granularity residual that T-34's own acceptance already concedes. The
+practical consequence is that re-minting the SCOPE-OVERLAP receipts is only worth doing
+once, as the genuinely last action before submission — do it earlier and the next commit
+undoes it. Use `python3 .claude/monitor/check_fingerprint_drift.py` and confirm the only
+verdicts are MATCH and SCOPE-OVERLAP; **CONTENT drift is the row that would actually mean
+something**, and it has been zero throughout.
