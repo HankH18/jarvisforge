@@ -16,7 +16,7 @@
 - **Depends on**: T-0 · **parallel_safe**: false
 - **Non-goals**: No tools, no memory, no grounding policy, no frontend
 
-### T-2: Grounded tool-calling core: routing, ANSWER_POLICY, refusal, self-manifest  `[queue]`
+### T-2: Grounded tool-calling core: routing, ANSWER_POLICY, refusal, self-manifest  `[resolved]`
 - **Objective**: Dual-model routing (CONVO_MODEL always-on, TOOL_MODEL escalation for heavy tools), ToolResult type, tool registry, synthesize_grounded with REFUSAL behavior, capabilities.yaml + self_manifest tool (R5).
 - **Acceptance**: 1) ToolResult, REFUSAL, synthesize_grounded implemented exactly as pinned in DESIGN.md 2) Routing escalates to TOOL_MODEL only for tools tagged heavy 3) Given empty/irrelevant tool results, answer starts with REFUSAL (unit-tested on fixture transcripts) 4) Capability questions answered solely from capabilities.yaml (unit-tested)
 - **Verify**: `cd backend && uv run pytest tests/grounding -q && uv run ruff check src`
