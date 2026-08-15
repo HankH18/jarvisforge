@@ -30,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Lint
-        run: cd backend && uv run ruff check src
+        run: cd backend && uv run ruff check src tests
 
       - name: Test
         run: cd backend && uv run pytest -q

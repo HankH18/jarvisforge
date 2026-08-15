@@ -604,11 +604,8 @@ async def test_heavy_tool_with_a_real_filler_still_records_the_real_tool_ms_and_
     finally:
         await session.aclose()
 
-    records = [
-        json.loads(line)
-        for line in (tmp_path / "real-filler-latency.jsonl").read_text(encoding="utf-8").splitlines()
-        if line
-    ]
+    latency_text = (tmp_path / "real-filler-latency.jsonl").read_text(encoding="utf-8")
+    records = [json.loads(line) for line in latency_text.splitlines() if line]
     assert len(records) == 1, records
     record = records[0]
     assert record["tool_ms"] > 500, (

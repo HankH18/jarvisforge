@@ -53,6 +53,7 @@ not, and neither is `42` buried inside an unrelated segment like
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -126,6 +127,40 @@ def _leaf_matches(
     return matches
 
 
+def _make_union_find(
+    parent: dict[tuple, tuple],
+) -> tuple[Callable[[tuple], tuple], Callable[[tuple, tuple], None]]:
+    """Build ``find``/``union`` closures bound to ``parent``.
+
+    Factored out of ``_ambiguous_pins`` (Ruff B023: "function definition
+    does not bind loop variable `parent`") -- there, ``find``/``union`` were
+    defined inline inside the ``for needle in case.must_include`` loop, and
+    a fresh ``parent`` dict was (re)assigned each iteration just above them.
+    Both closures were only ever CALLED synchronously within that same
+    iteration, before the next iteration's reassignment, so the late-binding
+    failure mode B023 warns about -- a stored/deferred closure reading a
+    since-changed loop variable -- never actually occurred; this rebuild
+    isn't fixing a live bug in ``_ambiguous_pins``. It still removes the
+    pattern properly rather than suppressing the lint: ``parent`` is now a
+    plain function parameter, bound once per call to this factory, with no
+    closure left nested inside the loop body for Ruff (rightly, as a general
+    rule) to flag.
+    """
+
+    def find(x: tuple) -> tuple:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: tuple, b: tuple) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    return find, union
+
+
 def _ambiguous_pins(case: GoldenCase) -> dict[str, list[tuple]]:
     """``{must_include substring: [distinct field_ids it matches]}`` for
     every substring satisfiable by more than one distinct field in
@@ -146,17 +181,7 @@ def _ambiguous_pins(case: GoldenCase) -> dict[str, list[tuple]]:
         # pair of matches shares a record AND the number's value is actually
         # restated in the url's value (not merely same-named).
         parent: dict[tuple, tuple] = {fid: fid for fid in field_ids}
-
-        def find(x: tuple) -> tuple:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(a: tuple, b: tuple) -> None:
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
+        find, union = _make_union_find(parent)
 
         for i, (field_a, record_a, name_a, value_a) in enumerate(raw_matches):
             for field_b, record_b, name_b, value_b in raw_matches[i + 1 :]:
