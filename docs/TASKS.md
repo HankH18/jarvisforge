@@ -168,7 +168,7 @@
 - **Depends on**: none · **parallel_safe**: false
 - **Non-goals**: Does not loosen any ticket's declared scope to make current work legal; Does not disable the guard as a way of passing its own tests
 
-### T-21: Ticket claims are session-scoped and carry an owner  `[queue]`
+### T-21: Ticket claims are session-scoped and carry an owner  `[resolved]`
 - **Objective**: .claude/active-ticket holds a bare ticket id and nothing else, so both guards key off repo-global state with no notion of who claimed it. stop_guard.sh therefore blocks every session in the repo from stopping while any ticket is open - including a read-only observer session that claimed nothing - and offers only finish, revert, or release, none of which a non-owner may safely do. scope_guard.sh has the mirror problem: with a claim active it constrains sessions that do not own it, and with no claim at all it permits everything. Protocol rule 9 contemplates three concurrent agents in worktrees, which neither guard can distinguish.
 - **Acceptance**: 1) A claim records an owner identifier alongside the ticket id, written when the ticket is claimed 2) stop_guard.sh blocks only the session that owns the claim; a session that owns no claim stops without being blocked 3) scope_guard.sh applies a ticket's scope only to the owning session 4) Guards behave safely when no claim exists: a missing active-ticket does not silently disable the scope boundary for a session that does hold work 5) A test exercises both guards for owner and non-owner sessions and runs in CI
 - **Verify**: `bash scripts/tests/run_claim_tests.sh`
