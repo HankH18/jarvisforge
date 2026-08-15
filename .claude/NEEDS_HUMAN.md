@@ -224,3 +224,68 @@ the checker passes.
 
 **What this changes:** R6a's zero-fabrication claim now covers both models in their real
 production roles, not just the conversational one.
+
+### ANSWERED — where the free Cartesia credits went (do NOT upgrade before reading)
+
+Cartesia exposes no usage/billing endpoint to this API key (every path tried returns 404
+or "must be logged in"; `/voices` authenticates fine, so the key is valid). Consumption
+figures are dashboard-only. **Zero synthesis calls were made during this investigation.**
+Everything below is from committed artifacts, installed SDK source, and live Fly state.
+
+**1. The dominant cause — a 55-turn live-TTS measurement run, and the timing matches.**
+`docs/latency-deployed-2026-08-14.jsonl` is the worker's own latency log pulled off the
+Fly machine. Verified directly: **55 completed turns, max turn_id 64, spanning 12.65
+minutes** (2026-08-14 05:13:35 → 05:26:14 UTC). That is `scripts/drive_turns.py --turns 55`
+against the deployed worker — and 12.65 minutes is your "about 15 minutes". The credits
+went on a **latency measurement**, not on a demo.
+
+**2. It ran on Cartesia's flagship model.** `providers.py:67` is
+`cartesia.TTS(word_timestamps=False)` with **no `model=`**, so it inherits the plugin
+default — verified at `livekit/plugins/cartesia/tts.py:91`: `model = "sonic-3"`. Nothing
+overrides it. That run also predates T-16's `word_timestamps=False` fix, so it paid for
+word-level alignment on every chunk too.
+
+**3. Preemptive TTS can pay for the same reply up to ~4 times.** `worker.py:56` sets
+`preemptive_generation={"preemptive_tts": True}` — an explicit opt-in; the SDK default is
+`False`. Per installed source, it starts synthesizing on **every STT transcript revision**
+and cancels the prior in-flight synthesis, up to `max_retries: 3`
+(`livekit/agents/voice/turn.py:227`), then discards the speculative audio unless the final
+transcript matches exactly. Worst case: **3 discarded syntheses + 1 real one per spoken
+turn.** Cancellation happens after text has already crossed the websocket, so the
+generated portion is very likely still billed. **This is worse with a live human** (false
+starts, "um", background noise → many revisions) than with `drive_turns.py`'s clean WAV
+clips — so a real demo will hit this multiplier harder than that 55-turn run did.
+
+**4. RULED OUT — retry storms.** `_exceptions.py:75-80` marks all 4xx except 408/429/499
+non-retryable, so the 402 stopped calls rather than hammering. Confirmed by the recorded
+traceback: `status_code=402, retryable=False`.
+
+**5. Gotcha for later — `load_smoke.sh` claims it "never touches STT/TTS".** True
+client-side, but Fly logs show LiveKit auto-dispatching the real agent (and its real
+Cartesia client) into every `load-smoke-*` room. Those log lines postdate the 402 so this
+did not cause the burn, but any future load test touches Cartesia whether it means to or not.
+
+**Not found:** no batch-regeneration bug (fillers/utterances are idempotent, ~500 chars,
+one-time), no unbounded verbatim LLM speech (system prompt enforces brevity), **and no
+spend guard anywhere in `backend/src/jarvis`.**
+
+**Rough size:** the latency schema stores no transcript, so an exact character count is not
+recoverable. Order-of-magnitude for the 55-turn run: ~8–15k characters on the premium
+model, times the discard multiplier. Plausibly a whole free tier in 13 minutes.
+
+**Before upgrading, in priority order:**
+1. `worker.py:56` — set `preemptive_tts: False` (or drop the override, restoring the SDK
+   default). Removes the up-to-4× multiplier. **Tradeoff: it is a latency lever, and R1
+   wants <800 ms time-to-first-audio — but `docs/latency-report.md` says this lever was
+   never verified as a real win, because Cartesia has been down. Your call.**
+   Middle option: keep it and add `"max_retries": 1`, halving the worst case.
+2. `providers.py:67` — pin an explicitly cheaper model rather than inheriting `sonic-3`.
+   Check current Cartesia pricing first; I could not read pricing via API.
+3. **Never point `drive_turns.py` / `load_smoke.sh` at the live Cartesia key.** Both
+   support `TTS_PROVIDER=aura2` (`providers.py:20`). This is what actually burned the account.
+4. Consider a spend guard — a per-session character counter that falls back to Aura-2 past
+   a threshold. None exists today.
+
+With (1) and (3) applied, a 10-minute demo of short spoken turns should cost on the order
+of a few thousand characters. That is evidence-grounded, not a guarantee — characters
+cannot be converted to Cartesia "credits" without dashboard access.
