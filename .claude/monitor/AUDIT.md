@@ -55,3 +55,78 @@ duplicate-identity one was genuinely important and I had it wrong in an earlier 
 Hank. But please **re-run against a clean HEAD before attaching a reproduced failure
 count**, since a stated count is what makes a filing actionable, and a wrong one is what
 makes it dangerous.
+
+---
+
+## 2026-08-15 15:33 CDT — cycle 1 (watchdog P)
+
+**Measured at HEAD `36e1eef`.** Tree state at measurement: clean except
+`M .claude/monitor/heartbeat.jsonl` and `?? .claude/agents/` — neither touches any file
+below. Heeding the note directly above: every failure count here was executed at this sha.
+
+**Verdict: the build is green; the harness is not enforcing what its protocol claims.**
+`.claude/claims/` does not exist and mine is the only session in the heartbeat, so there is
+no live build to shadow. This cycle covered harness integrity, re-verification of past
+claims, and the auth changes at HEAD.
+
+### CONFIRMED — executed at `36e1eef`
+
+1. **The cross-ticket regression gate never runs.** `harness-protocol.md:29` promises that
+   `close` "runs the full regression suite". `cmd_close` gates that on
+   `load_tickets().get("full_verify")` (`harness_lib.py:169`) and `docs/tickets.json` has no
+   such key — its top-level keys are `['project','tickets']`. `full` is therefore `None` and
+   the gate is skipped entirely. A ticket closes on its own narrow verify alone: it can break
+   every other ticket's tests and still mint a receipt. The single widest gap between what
+   the protocol promises and what it does.
+
+2. **The scope guard does not constrain any session that has not claimed.** Probed the guard
+   CLI directly with my own claimless session id — `backend/src/jarvis/server/app.py` →
+   `allow`; `frontend/src/App.tsx` → `allow`; `docs/tickets.json` → `deny`. Source confirms:
+   `harness_lib.py:259` returns allow whenever `session_claim(sid)` is None. Only `PROTECTED`
+   binds a claimless session. This is the enforcement asymmetry WATCHDOG.md asks after, and
+   it is not hypothetical — it is the exact mechanism by which T-29…T-33 were built outside
+   the ledger. The harness binds the compliant session and nothing else.
+
+3. **`changed_since()` mutates the working tree.** It runs `git add -A` before diffing
+   (`harness_lib.py:96`). Reproduced faithfully in a throwaway repo: a modified tracked file
+   *and* an untracked file were both left staged by the call. It is reachable from the
+   documented, inspection-sounding `harness_lib.py integrity <T-id> <commit>` subcommand, so
+   an auditor running the documented check silently stages a build session's in-flight work —
+   which `cmd_claim`'s own `git add -A` then sweeps into the next `ticket-start:` commit.
+   I did **not** run `integrity` against this repo, for that reason.
+
+4. **The ledger is fully dormant: 0 of 35 tickets resolve.** `receipt()` reads
+   `.claude/evidence/<id>.json`; that directory holds nine `.pass` files (T-0…T-8) and no
+   `.json` at all, so derived status is `queue` for all 35. Note the blocker doc's "moved all
+   26 receipts to evidence-v1" is imprecise: 26 are in `evidence-v1/` *and* 9 stale `.pass`
+   files remain in `evidence/`. Only 12 tickets have no `depends_on`, and 10 of those already
+   shipped — so the claimable set is effectively {T-22, T-28}, both obsolete or blocked.
+
+5. **`ci.yml`'s header is now false, in the project's favour.** Lines 8–12 still read "no PR
+   has actually been opened … reachable but unproven". PR #1 merged as `56dbc6d`, and
+   `gh run list` shows run `31901208728` **completed success in 48s**. STACK.md's
+   `frontend-ci-gap` row carries the same stale caveat. A caveat outliving its cause, but it
+   now understates the project.
+
+### Re-verified — prior verdicts stand, nothing reopened
+
+- `run_smoke_exit_code_tests.sh` → exit 0, **10/10**. The 2026-08-14 rejection of
+  `smoke-harness-stale` stands; I am not resurrecting it.
+- `run_require_db_wiring_tests.sh` → exit 0, **2/2**. Same: `submission-harness-stale` stays
+  rejected.
+- Backend `pytest -q` → **519 passed**; `ruff check src tests` → clean.
+- Frontend `npm run lint` → clean; vitest → **105 passed** across 16 files.
+- **`duplicate-livekit-identity`, filed "HALF-DONE — DO NOT SHIP YET", is resolved at HEAD.**
+  `worker.py:89` now returns `stable_identity_key(participants[0].identity)`, recovering the
+  stable user key from the session-scoped identity, so the mem0 namespace is per-user again.
+  `jarvis/auth/identity.py` exists and is covered by `tests/pipeline/test_resolve_user_id.py`
+  and `tests/multiuser/test_auth_jwt.py`. That STACK row should move to DONE.
+
+### Checked and NOT filed
+
+CodeGraph's blast-radius pass flagged `_room_for_authenticated_identity` (`app.py:120`) and
+`resolve_identity` as having no covering tests. **False alarm — not filed.**
+`tests/multiuser/test_auth_jwt.py` exercises the room derivation through the endpoint in six
+tests (client-supplied room ignored, stability across requests, malformed/absent room, two
+users get different rooms, two tokens for one user share a room). The heuristic misses
+coverage that runs through the HTTP layer rather than calling the symbol by name.

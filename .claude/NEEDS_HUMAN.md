@@ -289,3 +289,60 @@ model, times the discard multiplier. Plausibly a whole free tier in 13 minutes.
 With (1) and (3) applied, a 10-minute demo of short spoken turns should cost on the order
 of a few thousand characters. That is evidence-grounded, not a guarantee — characters
 cannot be converted to Cartesia "credits" without dashboard access.
+
+---
+
+## 2026-08-15 15:33 CDT — watchdog P, cycle 1: three harness defects only you can fix
+
+All three live in `.claude/scripts/harness_lib.py` or `docs/tickets.json`, both `PROTECTED` —
+no agent can touch them, so they cannot be dispatched off `STACK.md`. All confirmed by
+execution at HEAD `36e1eef`. Full detail in `.claude/monitor/AUDIT.md`.
+
+**1. P0 — the regression gate in `close` has never run.** Rule 5 of the protocol says
+`claim.sh close` "runs the full regression suite". It does that only `if full`, where
+`full = load_tickets().get("full_verify")` (`harness_lib.py:169`). **`docs/tickets.json` has
+no `full_verify` key** — its top-level keys are `['project','tickets']`. So the cross-ticket
+gate is dead code, and every receipt ever minted attests only to its own ticket's narrow
+verify. A ticket could break the other 34 tickets' tests and still close green. This is
+one key in `tickets.json` away from working; I cannot add it. **Decision needed: what
+command is the regression suite?** The obvious candidate is what CI runs
+(`cd backend && uv run ruff check src tests && uv run pytest -q`), but the frontend half
+needs `npm ci` and would make every close slow — your call whether the gate is backend-only.
+
+**2. P1 — the scope guard binds only sessions that volunteered.** `harness_lib.py:259`
+allows any write outside `PROTECTED` when the session holds no claim. I probed it live with
+my own claimless session: writes to `backend/src/jarvis/server/app.py` and
+`frontend/src/App.tsx` both returned `allow`. The comment marks this intentional
+(`jarvis T-21`), and it is what lets a watchdog like me write to `monitor/`. But combined
+with the dormant ledger it means **no work happening in this repo today is scope-guarded**,
+and it is precisely the mechanism by which T-29…T-33 were built outside the ledger. This is
+the enforcement asymmetry WATCHDOG.md tells me to watch for, and it is structural rather
+than a single violation. **Decision needed**, not a patch: either the guard constrains every
+in-repo session by default (with an explicit monitor exemption), or the protocol stops
+describing scope as enforced and calls it advisory. Right now the docs overstate it.
+
+**3. P1 — the documented integrity check corrupts the tree it inspects.**
+`changed_since()` runs `git add -A` before diffing (`harness_lib.py:96`), so
+`harness_lib.py integrity <T-id> <commit>` — which reads as a read-only audit command, and
+is the one WATCHDOG.md points an auditor at — silently stages the caller's entire working
+tree, untracked files included. I reproduced it faithfully in a throwaway repo rather than
+run it here. The damage compounds: `cmd_claim` also does `git add -A`, so anything an
+auditor staged gets swept into the next `ticket-start:` commit as if the implementer had
+written it. **I have not run `integrity` against this repo and will not until this is
+fixed** — which leaves receipt-vs-scope drift unverifiable by me in the meantime.
+
+**Context you may want first: the ledger is fully dormant — 0 of 35 tickets resolve.**
+`receipt()` reads `.claude/evidence/<id>.json`; that directory contains nine `.pass` files
+and no `.json`. Only 12 tickets have no dependencies and 10 of those already shipped, so the
+claimable set is effectively {T-22, T-28} — one obsolete, one blocked. Until the receipt
+question is settled, `claim.sh` cannot start any real work, which is why items keep being
+built outside it. Also a small correction to the blocker doc: the migration was partial —
+26 receipts are in `evidence-v1/` **and** 9 stale `.pass` files remain in `evidence/`.
+
+**Good news, unprompted:** CI is no longer unproven. PR #1 (`56dbc6d`) triggered run
+`31901208728`, which **passed in 48s**. `ci.yml:8-12`, `docs/TECHNICAL.md`, and the
+`frontend-ci-gap` row in STACK.md all still say otherwise; I filed that as a trivial,
+agent-executable fix. And the `duplicate-livekit-identity` item last recorded as
+"HALF-DONE — DO NOT SHIP YET" is **resolved at HEAD** — the mem0 namespace is per-user
+again via `stable_identity_key`. Backend 519 passed / ruff clean, frontend 105 passed /
+lint clean.
