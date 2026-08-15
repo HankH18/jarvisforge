@@ -138,16 +138,47 @@ async def test_entrypoint_wires_the_pinned_event_contract_onto_the_session(ctx):
 
 
 @pytest.mark.asyncio
-async def test_entrypoint_enables_preemptive_tts(ctx):
-    """T-16 (R1 latency lever): the real AgentSession is built with
-    preemptive TTS on, not just the SDK's default (LLM-only) preemptive
-    generation -- see worker.py's module docstring for why this is expected
-    to shrink turn_end -> first-audio on no-tool turns."""
+async def test_entrypoint_disables_preemptive_tts_by_default(ctx, monkeypatch):
+    """2026-08-15 Cartesia credit-burn incident (.claude/NEEDS_HUMAN.md
+    "ANSWERED -- where the free Cartesia credits went"): T-16 originally
+    turned preemptive TTS on unconditionally (commit 0855ce2), which this
+    test used to assert as `is True`. That contract was replaced by an
+    explicit decision, not a bug fix -- Cartesia bills by SECONDS OF
+    GENERATED AUDIO, and preemptive_tts speculatively (re)synthesizes on
+    every not-yet-final STT transcript revision, discarding-but-still-paying
+    for whatever was cancelled. That is what actually burned a 20,000
+    credit/month free tier in ~13 minutes running a 55-turn latency
+    measurement. Preemptive TTS is now OFF by default (the cheap, safe
+    state) and only re-enabled via $JARVIS_PREEMPTIVE_TTS -- see
+    test_entrypoint_enables_preemptive_tts_via_env_var below and worker.py's
+    module docstring."""
+    monkeypatch.delenv("JARVIS_PREEMPTIVE_TTS", raising=False)
+
     await worker.entrypoint(ctx)
 
     session = FakeAgentSession.instances[0]
     assert session.turn_handling is not None
-    assert session.turn_handling["preemptive_generation"]["preemptive_tts"] is True
+    assert session.turn_handling["preemptive_generation"]["preemptive_tts"] is False
+
+
+@pytest.mark.asyncio
+async def test_entrypoint_enables_preemptive_tts_via_env_var(ctx, monkeypatch):
+    """$JARVIS_PREEMPTIVE_TTS=1 is the explicit, explorable opt-back-in for
+    R1 (<=800ms p95 time-to-first-audio) A/B testing. When enabled, the
+    speculative-retry cap must also drop from the SDK default (3, see
+    installed livekit-agents' PreemptiveGenerationOptions/
+    _PREEMPTIVE_GENERATION_DEFAULTS in voice/turn.py) to 1, so the opted-in
+    path can pay for at most 1 discarded + 1 real synthesis per turn instead
+    of up to 3 discarded + 1 real."""
+    monkeypatch.setenv("JARVIS_PREEMPTIVE_TTS", "1")
+
+    await worker.entrypoint(ctx)
+
+    session = FakeAgentSession.instances[0]
+    assert session.turn_handling is not None
+    preemptive = session.turn_handling["preemptive_generation"]
+    assert preemptive["preemptive_tts"] is True
+    assert preemptive["max_retries"] == 1
 
 
 @pytest.mark.asyncio

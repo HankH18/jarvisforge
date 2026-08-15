@@ -19,6 +19,26 @@ from livekit.plugins import anthropic, cartesia, deepgram
 _DEFAULT_TTS_PROVIDER = "cartesia"
 TTS_PROVIDERS = ("cartesia", "aura2")
 
+# The installed livekit-plugins-cartesia's own TTS.__init__ default
+# (`livekit/plugins/cartesia/tts.py`: `model: TTSModels | str = "sonic-3"`)
+# as of this repo's pinned dependency version. Pinning it explicitly here is
+# for REPRODUCIBILITY, not cost: before this pin, build_tts()'s Cartesia
+# branch called `cartesia.TTS(word_timestamps=False)` with no `model=` at
+# all, so it silently inherited whatever the installed plugin happened to
+# default to -- a future plugin bump could move that default (and therefore
+# this project's voice/latency/cost profile) with zero visibility in this
+# repo's diff. Pinning the CURRENT value keeps behavior unchanged today.
+#
+# Do NOT change this to a "cheaper" model on a guess. Cartesia's pricing
+# page and older-models docs publish no per-model credit rates, and since
+# billing is by seconds of generated audio (not characters, not model
+# choice), a different model is not obviously cheaper -- see
+# .claude/NEEDS_HUMAN.md's 2026-08-15 Cartesia credit-burn investigation.
+# $CARTESIA_TTS_MODEL overrides this for deliberate, evidence-driven A/B
+# testing. Valid values (installed plugin's `models.py`, `TTSModels`):
+# "sonic", "sonic-2", "sonic-lite", "sonic-preview", "sonic-turbo", "sonic-3".
+_DEFAULT_CARTESIA_TTS_MODEL = "sonic-3"
+
 
 def build_llm() -> llm_base.LLM:
     """The single fast conversational model (T-1: no routing/escalation; that's T-2).
@@ -59,10 +79,15 @@ def build_tts() -> tts_base.TTS:
     speed number -- Cartesia TTS is unmeasurable right now (see
     docs/latency-report.md); this cannot be verified live until the account's
     credits are restored.
+
+    2026-08-15: the Cartesia branch also now pins ``model=`` explicitly (see
+    ``_DEFAULT_CARTESIA_TTS_MODEL`` above for why -- reproducibility, not
+    cost), overridable via ``$CARTESIA_TTS_MODEL``.
     """
     provider = os.environ.get("TTS_PROVIDER", _DEFAULT_TTS_PROVIDER).strip().lower()
     if provider == "aura2":
         return deepgram.TTS()
     if provider == "cartesia":
-        return cartesia.TTS(word_timestamps=False)
+        model = os.environ.get("CARTESIA_TTS_MODEL", _DEFAULT_CARTESIA_TTS_MODEL)
+        return cartesia.TTS(model=model, word_timestamps=False)
     raise ValueError(f"unknown TTS_PROVIDER={provider!r}, expected one of {TTS_PROVIDERS}")

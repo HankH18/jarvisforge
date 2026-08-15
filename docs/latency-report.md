@@ -181,8 +181,9 @@ diagnostic breakdown but never certifies a PASS/FAIL verdict without `--driver-j
 
 ### 2. Two latency levers landed, each with evidence -- code + offline tests only, not a live measurement
 
-**a) LiveKit preemptive TTS** (`backend/src/jarvis/pipeline/worker.py`): `AgentSession` is now
-built with `turn_handling=TurnHandlingOptions(preemptive_generation={"preemptive_tts": True})`.
+**a) LiveKit preemptive TTS** (`backend/src/jarvis/pipeline/worker.py`): originally landed as
+`AgentSession` built unconditionally with
+`turn_handling=TurnHandlingOptions(preemptive_generation={"preemptive_tts": True})`.
 Evidence: read directly from the installed SDK (`livekit-agents` 1.6.10,
 `livekit/agents/voice/turn.py`). Preemptive generation is already on by default
 (`enabled: True`), but with `preemptive_tts: False` (the default) only the LLM call starts
@@ -191,9 +192,24 @@ the turn. `preemptive_tts: True` lets TTS *also* start synthesizing before confi
 the time `latency.turn_ended()` opens the record (the moment endpointing actually confirms the
 turn), synthesis may already be underway or done. This only affects the no-tool path (a
 fired tool bypasses the SDK's own TTS scheduling via `tools_wiring._dispatch`'s direct
-`session.say()`), i.e. exactly R1's population. Locked down by
-`test_entrypoint_enables_preemptive_tts` (`backend/tests/pipeline/test_worker_entrypoint.py`).
-Not independently measurable right now (would require a live session).
+`session.say()`), i.e. exactly R1's population. Not independently measurable right now (would
+require a live session).
+
+**2026-08-15 UPDATE (preemptive change only -- measurements above and below are untouched):**
+this lever is now OFF by default. It was one of the causes of a Cartesia credit-burn incident
+(`.claude/NEEDS_HUMAN.md`, "ANSWERED -- where the free Cartesia credits went"): Cartesia bills
+by seconds of *generated* audio, and `preemptive_tts: True` re-synthesizes on every not-yet-final
+STT transcript revision, discarding-but-still-paying-for whatever gets cancelled -- worst case up
+to the SDK's `max_retries` (default 3) discarded syntheses plus the one real one per turn. Since
+this remains a genuine, real R1 lever, it was made env-driven rather than deleted:
+`$JARVIS_PREEMPTIVE_TTS=1` re-enables it (with the SDK's speculative-retry cap also lowered from
+3 to 1 in code, halving the worst case), so it stays available for a future A/B measurement once
+Cartesia credits allow one. Locked down by
+`test_entrypoint_disables_preemptive_tts_by_default` and
+`test_entrypoint_enables_preemptive_tts_via_env_var`
+(`backend/tests/pipeline/test_worker_entrypoint.py`, replacing the old
+`test_entrypoint_enables_preemptive_tts`). No new latency measurement was taken for this change
+(still blocked on Cartesia credits, same as everything else in this report).
 
 **b) Cartesia: stop requesting unused word-level timestamps**
 (`backend/src/jarvis/pipeline/providers.py`): `build_tts()`'s Cartesia branch now passes

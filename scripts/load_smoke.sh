@@ -36,6 +36,20 @@
 # not self-host LiveKit to work around it) -- is a FAIL with a clear reason,
 # never a silent pass. A green exit code means N real sessions were
 # actually held open concurrently, full stop.
+#
+# Cartesia spend (2026-08-15, see .claude/NEEDS_HUMAN.md "ANSWERED -- where
+# the free Cartesia credits went"): this script's OWN client code never
+# publishes an audio track and never calls TTS directly (see above -- only
+# the LiveKit room-join/transport layer is exercised). BUT every room it
+# opens is on the SAME LiveKit Cloud project the deployed jarvisforge agent
+# worker is dispatched into, and Fly logs have shown that REAL worker (with
+# its REAL Cartesia client) auto-joining every "load-smoke-*" room LiveKit
+# routes it to. No synthesis has been observed from that -- no audio is
+# ever published into these rooms today -- but this script cannot see or
+# control what TTS provider that worker is actually configured with (that
+# is the worker's own $TTS_PROVIDER, set on Fly, NOT anything in this
+# script's environment), and cannot guarantee no future code path (e.g. a
+# greeting-on-join) makes it speak. See _cartesia_spend_guard below.
 
 set -uo pipefail
 
@@ -43,6 +57,47 @@ N="${1:-10}"
 case "$N" in
     ''|*[!0-9]*|0) echo "FAIL: N must be a positive integer (got: '${N}')" >&2; exit 1 ;;
 esac
+
+# --- Cartesia spend guard (2026-08-15) --- see the header comment above for
+# the full "why": this script sends no audio itself, but a real deployed
+# agent worker (with real Cartesia credentials) auto-joins every room it
+# opens on the same LiveKit project, and this script cannot see or control
+# that worker's $TTS_PROVIDER. Require an explicit, informed opt-in before
+# doing anything real.
+cartesia_spend_guard() {
+    case "${ALLOW_CARTESIA_SPEND:-}" in
+        1|true|TRUE|True|yes|YES|on|ON) return 0 ;;
+    esac
+    cat >&2 <<'EOF'
+
+==================== CARTESIA SPEND WARNING ====================
+load_smoke.sh's own client code never publishes audio and never calls TTS
+directly -- only the LiveKit room-join/transport layer is exercised. BUT
+every room it opens is on the SAME LiveKit Cloud project the deployed
+jarvisforge agent worker is dispatched into, and that REAL worker (with
+its REAL Cartesia client) has been observed auto-joining every
+"load-smoke-*" room. This script cannot see or control what TTS provider
+that worker is actually configured with -- that is the worker's own
+$TTS_PROVIDER, set on Fly, NOT anything in this script's environment --
+and cannot guarantee no code path makes it speak.
+
+Cartesia bills by SECONDS OF GENERATED AUDIO (roughly 12 credits/second,
+not characters). A single 55-turn `drive_turns.py` run against the
+deployed worker exhausted a 20,000-credit/month free tier in ~13 minutes.
+
+Before running this against a real deployment, check/set:
+  fly secrets set TTS_PROVIDER=aura2 -a jarvisforge
+
+Set ALLOW_CARTESIA_SPEND=1 to proceed once you've done that (or you
+otherwise knowingly accept the risk).
+==================================================================
+
+EOF
+    echo "FAIL: refusing to run without ALLOW_CARTESIA_SPEND=1 (see warning above)." >&2
+    exit 1
+}
+cartesia_spend_guard
+echo "ALLOW_CARTESIA_SPEND=1 acknowledged -- proceeding (see load_smoke.sh's header/guard for what this does and does not cover)." >&2
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"

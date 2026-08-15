@@ -38,6 +38,16 @@ Usage (from repo root or backend/):
 Requires `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` in the
 environment when `--token-url` is not given (local minting, mirrors
 `backend/src/jarvis/server/app.py`'s `/api/token`).
+
+COST WARNING (2026-08-15, see `_cartesia_spend_guard`): every turn this
+script drives can trigger a real Cartesia TTS synthesis call on whatever
+worker replies -- a `--turns 55` run against the deployed worker exhausted
+a 20,000-credit/month free Cartesia tier in ~13 minutes
+(.claude/NEEDS_HUMAN.md). This script CANNOT change what TTS provider a
+deployed worker uses (that is the worker's own `$TTS_PROVIDER`, set on Fly,
+not here) -- it only refuses to run at all unless
+`ALLOW_CARTESIA_SPEND=1` is set, after printing what to check/set on the
+actual target first.
 """
 
 from __future__ import annotations
@@ -57,6 +67,81 @@ from pathlib import Path
 import httpx
 import livekit.rtc as rtc
 from livekit.api import AccessToken, VideoGrants
+
+# --- Cartesia spend guard (2026-08-15) ---
+# A `drive_turns.py --turns 55` run against the deployed worker exhausted a
+# 20,000-credit/month free Cartesia tier in ~13 minutes
+# (.claude/NEEDS_HUMAN.md, "ANSWERED -- where the free Cartesia credits
+# went"). Cartesia bills by SECONDS OF GENERATED AUDIO, not characters
+# (~12 credits/second by their own pricing page), and every turn this
+# script drives can trigger a real synthesis call on whatever the target
+# worker is actually configured to use.
+_ALLOW_CARTESIA_SPEND_ENV = "ALLOW_CARTESIA_SPEND"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _cartesia_spend_guard() -> int | None:
+    """Refuse to run against a live target unless the operator has
+    explicitly acknowledged the real Cartesia cost model -- and be honest
+    about what this guard can and cannot actually control.
+
+    IMPORTANT, and the reason this is a warning-plus-opt-in rather than a
+    provider switch: this script CANNOT control what TTS provider the
+    worker it drives actually uses. drive_turns.py only joins the LiveKit
+    room as an ordinary participant and plays audio; the agent that
+    replies is a SEPARATE process -- locally, or (via --token-url) the
+    DEPLOYED Fly worker -- and that process reads its OWN
+    $TTS_PROVIDER from its OWN environment
+    (backend/src/jarvis/pipeline/providers.py:build_tts). Setting
+    $TTS_PROVIDER in the shell that runs *this* script has NO effect on a
+    deployed worker's TTS choice. Pretending a client-side env var here
+    could switch that off would be a fake guard, not a real one.
+
+    Because docs/DESIGN.md pins "cartesia" as the documented default, the
+    safe assumption -- absent direct confirmation of the target's actual
+    config -- is that the target IS using Cartesia. So: always print the
+    warning, and require $ALLOW_CARTESIA_SPEND=1 to proceed at all.
+    """
+    allowed = os.environ.get(_ALLOW_CARTESIA_SPEND_ENV, "").strip().lower() in _TRUTHY
+    print(
+        "\n"
+        "==================== CARTESIA SPEND WARNING ====================\n"
+        "This script drives a REAL agent worker over LiveKit -- either one\n"
+        "running locally, or (with --token-url) the DEPLOYED Fly app. That\n"
+        "worker's TTS provider is chosen by ITS OWN $TTS_PROVIDER env var\n"
+        "(jarvis.pipeline.providers.build_tts), NOT by anything set in the\n"
+        "shell that runs this script. Setting $TTS_PROVIDER here has NO\n"
+        "effect on a deployed worker's synthesis calls.\n"
+        "\n"
+        "Cartesia bills by SECONDS OF GENERATED AUDIO (roughly 12\n"
+        "credits/second), not characters. A single `drive_turns.py\n"
+        "--turns 55` run against the deployed worker exhausted a\n"
+        "20,000-credit/month free tier in ~13 minutes (2026-08-14).\n"
+        "\n"
+        "TO AVOID SPENDING REAL CARTESIA CREDITS ON A DEPLOYED TARGET:\n"
+        "  fly secrets set TTS_PROVIDER=aura2 -a jarvisforge\n"
+        "and confirm it rolled out (a fresh deploy/restart) BEFORE\n"
+        "pointing this script at it via --token-url. For a LOCAL worker,\n"
+        "export TTS_PROVIDER=aura2 in the shell that starts THAT process\n"
+        "(python -m jarvis.pipeline.worker start) -- not this one.\n"
+        "==================================================================\n",
+        file=sys.stderr,
+    )
+    if not allowed:
+        print(
+            f"ERROR: refusing to run. Set {_ALLOW_CARTESIA_SPEND_ENV}=1 to proceed once "
+            "you have confirmed what TTS provider the target worker actually uses (see "
+            "warning above) and accept the cost if it is Cartesia.",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"{_ALLOW_CARTESIA_SPEND_ENV}=1 is set -- proceeding. This does NOT confirm the "
+        "target is using aura2; it only records that you've acknowledged the risk.\n",
+        file=sys.stderr,
+    )
+    return None
+
 
 # --- Audio contract (docs/DESIGN.md / LiveKit): 48kHz mono PCM16, 20ms frames. ---
 SAMPLE_RATE = 48_000
@@ -317,6 +402,10 @@ def _print_turn_line(result: TurnResult) -> None:
 
 
 async def _amain(args: argparse.Namespace) -> int:
+    guard_exit = _cartesia_spend_guard()
+    if guard_exit is not None:
+        return guard_exit
+
     room_name = args.room or f"drive-turns-{uuid.uuid4().hex[:8]}"
     identity = f"drive-turns-{uuid.uuid4().hex[:8]}"
 

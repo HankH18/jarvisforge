@@ -72,3 +72,29 @@ def test_unknown_provider_raises(monkeypatch):
 
     with pytest.raises(ValueError):
         build_tts()
+
+
+def test_cartesia_pins_an_explicit_model_by_default(monkeypatch):
+    """2026-08-15: build_tts() used to call cartesia.TTS(word_timestamps=False)
+    with no model=, silently inheriting whatever the installed plugin
+    defaulted to (.claude/NEEDS_HUMAN.md's Cartesia credit-burn writeup: this
+    is how the project ended up on sonic-3 without ever choosing it). Pin
+    must match the CURRENT plugin default exactly (reproducibility, not a
+    cost claim -- no per-model Cartesia pricing is published)."""
+    monkeypatch.delenv("TTS_PROVIDER", raising=False)
+    monkeypatch.delenv("CARTESIA_TTS_MODEL", raising=False)
+    monkeypatch.setenv("CARTESIA_API_KEY", "ck-test")
+
+    result = build_tts()
+
+    assert result._opts.model == "sonic-3"
+
+
+def test_cartesia_tts_model_env_var_overrides_the_pin(monkeypatch):
+    monkeypatch.setenv("TTS_PROVIDER", "cartesia")
+    monkeypatch.setenv("CARTESIA_TTS_MODEL", "sonic-turbo")
+    monkeypatch.setenv("CARTESIA_API_KEY", "ck-test")
+
+    result = build_tts()
+
+    assert result._opts.model == "sonic-turbo"
