@@ -468,3 +468,4 @@ and the honest one-line summary of the ledger is:
 
 I would rather you hear that from me than discover it from the graph.
 
+- [2026-08-15T23:26:59Z] T-10 released by cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef: close verify failed; log at /tmp/failed_T-10.log
