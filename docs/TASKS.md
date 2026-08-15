@@ -80,7 +80,7 @@
 - **Depends on**: T-6, T-7, T-8 · **parallel_safe**: false
 - **Non-goals**: No autoscaling config; no custom domains; no Vercel
 
-### T-10: Bonus: multi-user with Clerk - isolated memory, honored preferences, 10 concurrent  `[queue]`
+### T-10: Bonus: multi-user with Clerk - isolated memory, honored preferences, 10 concurrent  `[resolved]`
 - **Objective**: Clerk sign-in in SPA; /api/token requires Clerk JWT and derives identity server-side; mem0 namespacing by Clerk user id; voice-captured standing preferences honored across sessions; 10-session load smoke (R9).
 - **Acceptance**: 1) Unauthenticated /api/token returns 401; identity comes from verified JWT (client identity ignored) 2) Isolation test: user A's stored fact absent from user B's recall 3) Preference stated by voice in session 1 is honored in session 2 (test via prefs injection path) 4) scripts/load_smoke.sh sustains 10 concurrent sessions without errors
 - **Verify**: `(cd backend && uv run pytest tests/multiuser -q) && bash scripts/load_smoke.sh 10`
