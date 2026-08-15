@@ -499,3 +499,297 @@ Raised from defects observed while the T-0–T-16 build ran, each verified
   not add a CI job or matrix - SPEC C7 is a hard constraint; Does not
   restate the state list anywhere it is not already defined.
   `parallel_safe`.
+
+## Priority batch — post-build hardening (T-28–T-34)
+
+Raised by the 2026-08-14 monitor session from an adversarially-verified
+  audit of the T-17..T-27 batch and the finished build: every objective
+  below was confirmed against HEAD (each finding re-checked by an
+  independent skeptic pass, and the verify commands re-run) before being
+  written down. These carry `"priority": "next"` in `docs/tickets.json`.
+  None are `parallel_safe`, and the order is ENFORCED as a `depends_on`
+  chain (T-28 -> T-29 -> ... -> T-34), so the ready set is always exactly
+  one ticket. The per-ticket sections below are GENERATED from
+  `docs/tickets.json` — edit the JSON, not this prose.
+
+Provenance tags used in `refs`:
+- **MON#1** — T-19's pinned verify ends `|| true` (exits 0 unconditionally;
+  its eval leg genuinely exits 1 at HEAD); no lint guards verify strings.
+- **MON#2** — the approval gate proves presence, not currency: T-19's
+  post-approval golden edits passed every gate until noticed by hand.
+- **MON#3** — filler assets duplicated; `build_fillers.py` still writes
+  only the unpackaged path, so a rebuild strands the packaged copy.
+- **MON#4** — `JARVIS_MEMORY_TESTS_REQUIRE_DB` has no setter anywhere;
+  unreachable pgvector still exits 0 at machine level.
+- **MON#5** — worker-liveness probe silently skips unparseable exit-event
+  timestamps (fail-open); T-23's claimed wrong-shape probes were never
+  committed, and adjacent wrong shapes fail only via an unnamed crash.
+- **MON#6** — real-model eval evidence exists only as commit-message
+  prose; `--json` report plumbing exists unused.
+- **MON#7** — no evidence receipt for T-22 (closed) or T-13 (cannot close
+  yet); the submission gate has no MISSING classification.
+
+Human prerequisites (not tickets — nothing in-repo can do these):
+- `flyctl auth login` — unblocks T-9 live re-verification and T-32's
+  live-fixture capture.
+- Cartesia billing (HTTP 402) — unblocks the T-16 R1 measurement, the
+  demo video, and any future filler rebuild (T-30 explicitly excludes it).
+- T-13 submission send — Hank's call, per its completion commit.
+- T-29's minted `approved_sha256` needs Hank's confirmation.
+
+Deliberately NOT ticketed (recorded so it isn't re-litigated): T-22's
+  scope-granularity residual — broad scope globs (T-0 ≈ whole repo) make
+  fingerprint staleness noisy. Fixing it means retroactive scope surgery
+  on closed tickets in `docs/tickets.json` for diagnostic polish only;
+  the `reopened` vs `changed-by-a-different-ticket` labels already keep
+  the output readable.
+
+### T-28: T-19's verify can actually fail, and no verify string can neuter itself
+- **Objective**: T-19's pinned verify ends "--client echo || true": shell
+  left-associativity makes the whole command exit 0 even when its pytest leg
+  fails, and the inner eval leg genuinely exits 1 at HEAD (the echo client
+  mirrors each fixture, tripping exactly 10 content guards against
+  --max-fabrications 0 -- a known, stable outcome the pinned string discards).
+  Confirmed still true after the T-17..T-27 batch: the chore that fixed T-23's
+  string left T-19's untouched, and T-24's enumeration documented the
+  neutering without repairing it (a deliberate no-retroactive-edit choice
+  recorded in its completion commit). Nothing lints verify strings, so this
+  class -- unconditional-success tails, cwd-leaking cd across && (both
+  observed this build) -- can return with any future plan edit.
+- **Refs**: R6a, MON#1
+- **Acceptance**: 1) T-19's re-pinned verify exits nonzero when its pytest leg
+  fails (demonstrated with a temporary local red test, then reverted) and
+  nonzero when the echo eval's outcome deviates from its pinned expectation;
+  no || true or equivalent unconditional-success tail remains in it; 2) The
+  echo leg stays honest per SPEC R6a: it asserts the harness's known echo
+  outcome as a SELF-TEST (the stable fabrication set), keeps the existing
+  not-evidence-of-grounding labeling, and is never presented as grounding
+  evidence; 3) A verify-string lint runs inline in verify_gate.sh before any
+  ticket's verify executes, and verify_gate fails CLOSED if the lint cannot
+  run. The rules, pinned mechanically: reject unconditional-success tails (||
+  true, ; true, || :), and reject an unparenthesized cd whose effect crosses
+  && into a later leg that references a repo-root-relative path (scripts/,
+  docs/, .claude/, frontend/) -- the T-23 defect shape; a single leading cd
+  whose later legs stay inside that directory is conformant, so the ~20 legacy
+  'cd backend && ...' strings pass unchanged. Hook tests drive the lint with
+  at least one failing fixture per rule, plus all 35 current strings passing
+  after T-19's fix; 4) Only T-19's verify string is edited in
+  docs/tickets.json -- every other ticket's verify is byte-identical -- and
+  both places docs/TASKS.md restates T-19's string (its T-19 section and the
+  T-24 verify-coverage enumeration) are updated to the re-pinned string in the
+  same commit; the lint only ADDS failure modes to the gate; 5) The two
+  T-22-era sandbox assertions in .claude/hooks/tests/run_evidence_tests.sh
+  that pin the old permissive behavior (the T-19-shaped '|| true' case and the
+  T-23-shaped cd case, both currently asserted as allowed) are updated to
+  expect lint rejection; if any lint code lives outside verify_gate.sh, the
+  sandbox copy step is updated in the same change so the sandboxed gate still
+  runs it
+- **Verify**: `bash .claude/hooks/tests/run_verify_lint_tests.sh && bash .claude/hooks/tests/run_evidence_tests.sh`
+- **Scope**: `docs/tickets.json`, `docs/TASKS.md`, `.claude/hooks/**`,
+  `backend/evals/**`, `backend/tests/grounding/**`
+- **Depends on**: none
+- **Non-goals**: No other verify string is changed; No change to the REFUSAL
+  literal or pinned scoring verdict names; Does not attempt to make the echo
+  eval a grounding gate -- real-model evidence is T-33's job. Not
+  `parallel_safe`.
+
+### T-29: Golden-set approval binds to the bytes it approved
+- **Objective**: T-25's gate proves _meta.approved_by/approved_at are present
+  and non-blank -- not that the approval covers the current content.
+  Demonstrated live this build: T-19 edited the set after the 2026-08-13
+  approval (new G-038, tightened G-004) and every gate stayed green until
+  out-of-band monitoring surfaced it; the 2026-08-14 re-approval (362f95a) is
+  likewise bound to nothing, so the next edit repeats the cycle. Bind approval
+  to content: _meta.approved_sha256 over the approved bytes (golden.jsonl
+  normalized minus the _meta line); mismatch or absence fails the gate with
+  the remedy named. Same audit, secondary hygiene: test_golden_ambiguity's
+  number/url alias exemption accepts the number as ANY path segment of the
+  url, so /orgs/42/repo/pull/999 would wrongly exempt an unrelated 42.
+- **Refs**: R6, R6a, MON#2
+- **Acceptance**: 1) The approval gate fails with a distinct exit code and
+  remedy text when golden.jsonl's current content hash differs from
+  _meta.approved_sha256, and treats a missing hash on an otherwise-approved
+  set the same way -- unverifiable is never current; 2) A helper prints the
+  canonical hash for a human to paste; no code path ever writes
+  approved_sha256 into golden.jsonl (T-25's no-signing non-goal carried
+  forward). The executing agent performs the one-time mechanical edit
+  inserting the minted hash for the currently approved 2026-08-14 content --
+  required for the gate and the unmodified T-25 tests to pass against the real
+  file -- and Hank's confirmation of that exact value is requested in the
+  completion report; 3) Existing T-25 approval-gate tests pass unmodified; new
+  tests cover match, mismatch, and missing-hash via tmp_path sets and never
+  edit the real golden.jsonl beyond the single _meta hash insertion above (the
+  autouse byte-compare fixture pattern already in test_approval_gate.py); 4)
+  The number/url exemption merges a number/url pair only when the number is
+  the url's identifying segment, with a test that fails against the old
+  any-segment rule
+- **Verify**: `(cd backend && uv run pytest tests/grounding -q && uv run ruff check src)`
+- **Scope**: `backend/evals/**`, `backend/tests/grounding/**`
+- **Depends on**: T-28
+- **Non-goals**: No golden case content changes; No claim of authenticity
+  beyond content binding -- a human still owns 'approved'; No change to pinned
+  scoring verdict names. Not `parallel_safe`.
+
+### T-30: One filler-asset source of truth
+- **Objective**: T-26 fixed packaging by copying the six clips and manifest
+  into backend/src/jarvis/cadence/assets/fillers/, leaving the originals at
+  backend/assets/fillers/ -- and scripts/build_fillers.py still writes ONLY
+  the old location (_DEFAULT_OUT_DIR = <repo>/backend/assets/fillers), so the
+  first voice rebuild strands the packaged copy stale. T-26's divergence test
+  turns that drift into a red suite, but nothing repairs it and the
+  duplication is permanent load. Also stale: build_fillers.py's docstring
+  cites the manifest schema as pinned in .claude/scratch/t6-contract.md, a
+  path not in the tree.
+- **Refs**: R2, MON#3
+- **Acceptance**: 1) build_fillers.py's default output is the packaged
+  location production actually loads
+  (backend/src/jarvis/cadence/assets/fillers/, via _resolve_assets_dir());
+  backend/assets/fillers/ is deleted or reduced to an explicitly gitignored
+  scratch target, and nothing in src/ or tests/ references it -- the
+  pipeline-side references (cadence_wiring.py and test_cadence_wiring.py) are
+  in scope for exactly this; if the gitignored-scratch option is taken, the
+  ignore entry lives in a nested backend/assets/.gitignore, since the root
+  .gitignore is out of scope; 2) The T-26 divergence test is retired or
+  repointed so the suite encodes one-canonical-copy rather than
+  two-copies-agree; the packaged copy's integrity checks (manifest matches
+  files, bytes load into FillerBank) are not weakened; 3) The manifest schema
+  pointer names an in-repo location, not .claude/scratch/; 4) No audio bytes
+  change: the six packaged clips and the manifest are byte-identical before
+  and after this ticket
+- **Verify**: `(cd backend && uv run pytest tests/cadence tests/pipeline -q && uv run ruff check src)`
+- **Scope**: `scripts/**`, `backend/src/jarvis/cadence/**`,
+  `backend/tests/cadence/**`, `backend/src/jarvis/pipeline/**`,
+  `backend/tests/pipeline/**`, `backend/assets/**`, `docs/**`
+- **Depends on**: T-29
+- **Non-goals**: No clip regeneration -- Cartesia is returning HTTP 402
+  (billing), and rebuilding voices is not this ticket; No change to the
+  FillerBank loading contract or the pinned filler phrases. Not
+  `parallel_safe`.
+
+### T-31: The memory-DB hard-fail flag has a real setter
+- **Objective**: JARVIS_MEMORY_TESTS_REQUIRE_DB=1 turns an unreachable
+  pgvector into a hard failure (backend/tests/memory/conftest.py:95) -- but
+  nothing anywhere sets it: no workflow, hook, or script exports it, and the
+  conftest text implying a deployed/CI gate context sets it is currently
+  false. Confirmed empirically: the memory suite against an unreachable
+  database exits 0 (15 passed, 9 skipped) with a red banner no machine reads.
+  T-23 made the skip loud at human level; at machine level the pass is still
+  silent, which is the exact defect class T-23 existed to end.
+- **Refs**: MON#4
+- **Acceptance**: 1) Exactly one owning context is wired: verify_submission.sh
+  GAINS a memory check (it has none today) that runs the suite with
+  JARVIS_MEMORY_TESTS_REQUIRE_DB=1, so the submission gate never tolerates an
+  unverified memory path; local ticket verifies stay tolerant so an offline
+  machine can still close unrelated tickets; 2) A script test proves the wired
+  context fails on an unreachable database and passes with a reachable one --
+  the reachable case may be simulated by a stubbed suite inside the sandbox
+  project dir, per the harness's existing stub convention, since the subject
+  is verify_submission.sh's flag wiring and exit-code plumbing, not live DB
+  connectivity -- driving the real verify_submission.sh code path (sandbox
+  project-dir argument); 3) The conftest comment names the actual setter, and
+  docs record which gate requires the database and what credentials it needs;
+  4) Existing memory test modules remain byte-for-byte unmodified; the only
+  in-package edit is the conftest.py comment correction required by the
+  previous item
+- **Verify**: `(cd backend && uv run pytest tests/memory -q) && bash scripts/tests/run_require_db_wiring_tests.sh`
+- **Scope**: `scripts/**`, `backend/tests/memory/**`, `docs/**`
+- **Depends on**: T-30
+- **Non-goals**: Does not make local ticket verifies require a database; No
+  change to the memory implementation or its test modules. Not
+  `parallel_safe`.
+
+### T-32: The worker-liveness probe fails closed on shape drift
+- **Objective**: T-23's rebuilt worker check parses flyctl machine list -j
+  with an audit-confirmed fail-open branch: an exit event whose timestamp is
+  missing or unparseable is silently skipped, so exactly the signal the check
+  exists for -- a recent crash -- can vanish behind a green verdict. Adjacent
+  wrong shapes fail only by accident: events as a dict or a non-dict event
+  entry crashes the embedded parser, and the shell catch-all converts the
+  crash into an unhelpful 'no parseable verdict' failure rather than a named
+  one. T-23's completion commit claimed three wrong-JSON-shape probes 'fail
+  loudly', but zero are committed (they were ad-hoc dev-time checks), so this
+  regression class is unguarded. The field shape has never been validated
+  against a live authenticated flyctl -- auth remains a human-blocked
+  prerequisite.
+- **Refs**: MON#5
+- **Acceptance**: 1) An exit event with a missing or unparseable timestamp
+  makes the probe report UNKNOWN/fail -- proven to invert against the old
+  silent-skip behavior; events as a non-list and a non-dict entry in events[]
+  produce an explicit UNKNOWN/fail with a named reason instead of a
+  crash-derived verdict; a machine entry missing state continues to fail as it
+  does today; legitimately absent non-exit events remain fine; 2) Wrong-shape
+  probe cases are committed into scripts/tests/run_smoke_exit_code_tests.sh
+  (at minimum: events as a dict, exit event with a garbage timestamp, machine
+  entry missing state); the garbage-timestamp case is the one proven to invert
+  against the old behavior, the others assert the named-reason failure; 3) The
+  stable-window and Fly-checks requirements from T-23 are unchanged and no
+  existing harness case is weakened; 4) docs/ops-smoke-test.md gains the
+  one-step instruction for capturing a sanitized live fixture on first
+  authenticated run, and the harness accepts such a fixture as an additional
+  case when present
+- **Verify**: `bash scripts/tests/run_smoke_exit_code_tests.sh`
+- **Scope**: `scripts/**`, `docs/**`
+- **Depends on**: T-31
+- **Non-goals**: No live flyctl call in verify -- authentication is a
+  human-blocked prerequisite; No change to T-23's credential-failure semantics
+  (unauthenticated still hard-fails). Not `parallel_safe`.
+
+### T-33: Real eval runs leave committed artifacts
+- **Objective**: T-18 and T-19 both cite real-Anthropic eval results (PASS: 37
+  and 38 cases respectively, 0 fabrications, ...) that exist nowhere but
+  commit-message prose -- the audit could not verify either from the repo, and
+  T-18's acceptance-3 half about docs recording the re-run is still unmet at
+  HEAD because its scope had no docs path. The plumbing already exists unused:
+  evals.run supports --json (run.py) and _write_json_report writes a full
+  structured report. Make committed artifacts the convention and retire
+  commit-prose as eval evidence.
+- **Refs**: R6, R6a, MON#6
+- **Acceptance**: 1) A fresh real-model eval (default Anthropic client, models
+  from $CONVO_MODEL/$TOOL_MODEL routing) over the re-approved golden set runs
+  with --json and the report is committed at docs/evals/latest.json; the
+  summary shows 0 fabrications, 0 wrong refusals, 0 missing includes, 0
+  errors, or the failure is surfaced to the human rather than retried into
+  silence; 2) docs/evals/README.md names the convention -- every real run
+  writes a JSON report, committed with the change it evidences -- and points
+  at the latest report; T-18's outstanding docs-half is explicitly satisfied
+  by reference to it; 3) scripts/check_eval_report.py validates the committed
+  report's schema and zero-failure summary so a hand-edited or truncated
+  report cannot pass; it is stdlib-only, since the verify runs it under bare
+  python3 outside the uv environment; 4) golden.jsonl is untouched and no
+  model id is hardcoded anywhere
+- **Verify**: `(cd backend && uv run pytest tests/grounding -q) && python3 scripts/check_eval_report.py docs/evals/latest.json`
+- **Scope**: `backend/evals/**`, `docs/**`, `scripts/**`
+- **Depends on**: T-32
+- **Non-goals**: No API keys or secrets committed; No golden-set edits and no
+  eval logic changes beyond report plumbing. Not `parallel_safe`.
+
+### T-34: A missing receipt is a loud state, and every closed ticket has one
+- **Objective**: .claude/evidence/ holds fingerprint receipts for every ticket
+  that has closed except one -- T-22, the ticket that invented fingerprinting,
+  which never minted its own -- plus T-13, which has no receipt because it
+  legitimately cannot close yet (human-blocked, per its completion commit).
+  verify_submission.sh's freshness gate (seeded by T-22) judges receipts that
+  exist; a ticket with NO receipt must be its own explicit failure class,
+  distinguished from STALE/UNVERIFIABLE, and mapped to the documented
+  human-action list when that is the true cause -- otherwise absence reads as
+  either an opaque failure or nothing at all.
+- **Refs**: MON#7
+- **Acceptance**: 1) verify_submission.sh enumerates every ticket id in
+  docs/tickets.json and reports each with no receipt as MISSING -- its own
+  labeled failure, counted separately from STALE/UNVERIFIABLE in the run
+  summary; 2) T-22's receipt is minted by re-running its verify through the
+  real verify_gate path (not hand-written), after T-34's last edit to any file
+  in T-22's scope, and the freshness gate then reports it CURRENT as of T-34's
+  completion -- acknowledging the recorded scope-granularity residual
+  re-stales it on future scripts/** changes; 3) T-13's MISSING maps in output
+  to the human-action list in docs/SUBMISSION.md rather than presenting as
+  unexplained -- without being exempted: it still fails the gate until the
+  ticket truly closes; 4) The evidence hook test suite gains
+  MISSING-classification cases and all existing evidence tests pass unmodified
+  beyond what T-28 already changed
+- **Verify**: `test -f .claude/evidence/T-22.pass && bash .claude/hooks/tests/run_evidence_tests.sh && bash scripts/tests/run_require_db_wiring_tests.sh`
+- **Scope**: `scripts/**`, `.claude/hooks/**`, `docs/**`
+- **Depends on**: T-33
+- **Non-goals**: Does not mint T-13's receipt or complete T-13 -- that closure
+  is human-blocked; Does not relax the freshness gate for receipts that do
+  exist. Not `parallel_safe`.
