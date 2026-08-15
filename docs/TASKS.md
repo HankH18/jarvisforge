@@ -64,7 +64,7 @@
 - **Depends on**: T-3, T-4, T-5 · **parallel_safe**: false
 - **Non-goals**: No live-API eval cases (fixtures only); no CI wiring (local merge gate by design)
 
-### T-8: Polished SPA: join, converse, see live transcript and agent state  `[queue]`
+### T-8: Polished SPA: join, converse, see live transcript and agent state  `[resolved]`
 - **Objective**: React/Vite client: token fetch, room join, mic controls, live transcript, listening/thinking/working/speaking indicators. Polished per frontend-design guidance; UI simple, UX sharp.
 - **Acceptance**: 1) Client fetches /api/token with pinned shape and joins the room (mocked in tests) 2) agent_state and transcript events render (component tests) 3) Production build passes; no Next.js anywhere in the dependency tree
 - **Verify**: `cd frontend && npm run -s build && npm run -s test -- --run`

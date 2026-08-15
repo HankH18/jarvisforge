@@ -1,0 +1,9 @@
+{
+ "ticket": "T-8",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "cd frontend && npm run -s build && npm run -s test -- --run",
+ "commit": "7b579f843da1b43353693a01d24e0c429361798f",
+ "fingerprint": "710c27337f2479ca1558ef240ee18515e253e9cfdca3a39b0f5941d3e152e761",
+ "attempts": 0,
+ "ts": 1786835418
+}
