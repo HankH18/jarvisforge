@@ -1,0 +1,9 @@
+{
+ "ticket": "T-19",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "(cd backend && uv run pytest tests/grounding -q)",
+ "commit": "312f3fdf5f06d07bfd8894d9b587290ce9ff47f6",
+ "fingerprint": "d22d8921be0d413ac84aee302bf092dba81f142e566daf91962018951b8c1815",
+ "attempts": 0,
+ "ts": 1786837570
+}
