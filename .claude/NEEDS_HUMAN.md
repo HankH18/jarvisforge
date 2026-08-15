@@ -118,3 +118,28 @@ paid run and changes what the numbers mean, so the golden set's approval note sh
 so; or (b) accept the narrower claim and state in `docs/evals/README.md` that the
 zero-fabrication result covers `$CONVO_MODEL` only. Silently keeping the broad claim is
 the one option I would not pick.
+
+---
+
+## 2026-08-14 — correction to the P0 two-device note above, and two false alarms
+
+**Correction.** The earlier entry said the same user on two devices "deliberately lands in
+one room, so the two devices hear each other." That is wrong, and the watchdog caught it.
+`app.py:160` mints the token with `.with_identity(user_identity)` using the stable Clerk
+`user_id`, and LiveKit admits the newer participant by **disconnecting** the existing one
+on a duplicate identity. So a second tab does not join the first — it **evicts** it. Being
+fixed now with a unique per-session identity; the constraint is that `worker.py`'s
+`_resolve_user_id` keys mem0 memory off participant identity, so a stable user key has to
+survive the change or every user loses their memory.
+
+**Two watchdog findings were false and were NOT acted on.** Both claimed reproduced
+failures; both pass at HEAD `710f4db`, re-run by me:
+
+- `run_smoke_exit_code_tests.sh` — filed as "7/10 failures". Actual: **10/10 pass**, exit 0.
+- `run_require_db_wiring_tests.sh` — filed as "1/2 failures". Actual: **2/2 pass**, exit 0,
+  both pattern assertions matched.
+
+The likely cause is that the watchdog measured a partial working tree before T-32 and T-31
+were committed. Dispatching agents to "repair" those fixtures would have damaged working
+harnesses, so they are marked REJECTED in `.claude/monitor/STACK.md` with the evidence.
+Worth knowing that the watchdog's reproduced-failure claims are not reliable on their own.

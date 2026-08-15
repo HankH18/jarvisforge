@@ -1,4 +1,5 @@
 6216f75 docs: land the T-28..T-34 post-build hardening batch in the task graph
 89257555d449d6458bb6002d8bfa0ca524425e9279b20e7941b978bb9484057c  docs/tickets.json
-35d4eadbe0c5024598711fb9bc2bc7d83868aabc20789f6abd96b790acd7baaf  .claude/NEEDS_HUMAN.md
+202e362cf8a91fad9fdc0a478978243d3020896e5f1298fa8ea88797ab0dcc6f  .claude/NEEDS_HUMAN.md
 6e2f20b9c923eade62af633d07600934586e584229a02acc77ca66304f5b135d  .claude/monitor/AUDIT.md
+bed3342b2714175bc769ec804c4c7d2406d9358774c3d58926ae53350dbe46ef  .claude/monitor/STACK.md
