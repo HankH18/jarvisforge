@@ -112,7 +112,7 @@
 - **Depends on**: T-9 · **parallel_safe**: false
 - **Non-goals**: Do not block on bonuses - submit with whatever is green
 
-### T-14: Wire grounded tool-calling into the voice agent  `[queue]`
+### T-14: Wire grounded tool-calling into the voice agent  `[resolved]`
 - **Objective**: The tool registry, ANSWER_POLICY, synthesize_grounded and the weather/github/memory/self_manifest tools all exist and pass their tests, but nothing connects them to the LiveKit AgentSession - backend/src/jarvis/pipeline/ contains zero references to the registry. The running product is therefore a plain conversational LLM: asked for London weather it answers 'I don't have access to real-time weather data'. Found against the live deployment after T-9. R6 survives by accident (it refuses rather than fabricating); R3, R7 and R8 are unmet in the actual product.
 - **Acceptance**: 1) AgentSession is constructed with the tool registry attached so the model can actually call tools 2) A weather question invokes get_weather and the spoken answer is drawn from ToolResult data, not training knowledge 3) Heavy tools (github_qa) escalate the answer step to $TOOL_MODEL per DESIGN routing; weather/memory/self_manifest stay on $CONVO_MODEL 4) Refusal still holds: a question no tool result supports returns the REFUSAL prefix 5) An integration test drives a turn through the real session wiring and asserts a tool was actually invoked - not a mock standing in for the agent
 - **Verify**: `cd backend && uv run pytest tests/pipeline -q && uv run ruff check src`
