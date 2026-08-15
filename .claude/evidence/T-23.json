@@ -1,0 +1,9 @@
+{
+ "ticket": "T-23",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "(cd backend && uv run pytest tests/memory -q) && bash scripts/tests/run_smoke_exit_code_tests.sh",
+ "commit": "d51cc7d3b33afe0860e55bdf8a5261617c783bc9",
+ "fingerprint": "28e4bb2fbf9534cccbad5b7fc82b9b5efa2261360c7f7da28cc4b4fb931194e3",
+ "attempts": 0,
+ "ts": 1786835222
+}
