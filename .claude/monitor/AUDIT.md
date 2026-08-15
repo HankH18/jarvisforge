@@ -130,3 +130,69 @@ CodeGraph's blast-radius pass flagged `_room_for_authenticated_identity` (`app.p
 tests (client-supplied room ignored, stability across requests, malformed/absent room, two
 users get different rooms, two tokens for one user share a room). The heuristic misses
 coverage that runs through the HTTP layer rather than calling the symbol by name.
+
+---
+
+## 2026-08-15 18:20 CDT — cycle 3 (watchdog P)
+
+**Measured across HEAD `36e1eef` → `9b5b625`+.** Ledger went 0/35 resolved (cycle 1) → 7 →
+**29/35 resolved, 6 queued, no open claim** inside about 40 minutes. Tree clean but for
+heartbeat. Cycle 2's 8-lens workflow is still in its verify phase; its findings fold in next.
+
+### All three cycle-1 harness defects are repaired, and repaired well
+
+- `full_verify` exists and is real: `(cd backend && uv run pytest tests -q && uv run ruff check
+  src tests) && (cd frontend && npm run -s test -- --run && npm run -s build)`. `cmd_close` now
+  hard-fails with `NO REGRESSION GATE` when the key is absent, so the dead-code path cannot
+  return silently. Measured cost: **23.1s / 22.8s** across two runs.
+- `changed_since()` no longer runs `git add -A`, and the replacement still catches untracked
+  files via `ls-files --others --exclude-standard` — made safe without weakening detection,
+  which was the failure mode worth worrying about.
+- The guard hole is documented rather than closed (protocol rule 4 now warns "for most of what
+  happens in this repo, it will not [stop you]"; `eb5f2b2` encodes claimless-ALLOW as tested,
+  specified behavior). Defensible, but it converts the finding into a contract — see NEEDS_HUMAN.
+
+### A hypothesis of mine, tested and REFUTED — recording it so it is not re-raised
+
+Receipts were landing **23–30s apart** while `full_verify` alone measures **23s**. That looked
+impossible, and I nearly filed "the regression gate is being skipped". It is not. Their session's
+heartbeat shows a single 470-second window with **zero tool calls** in which 14 receipts were
+minted — one scripted Bash loop, **~34s per ticket**, comfortably above the 23s floor. The gate
+is running. My timing measurement was also taken under CPU contention with their build, which
+would inflate it, not deflate it. **Not a finding. Do not re-raise from the timing alone.**
+
+### Confirmed at HEAD
+
+1. **Retro-receipting: 23 of 25 `ticket-close` commits contain zero non-bookkeeping changes.**
+   Counting files per close commit and excluding `heartbeat.jsonl`, `TASKS.md`, `evidence/`,
+   `claims/`: only T-5 carries real files (2). `ticket-close: T-33` and `T-34` are fully empty.
+   Commit cadence confirms the shape — `ticket-close: T-x` is followed by `ticket-start: T-y`
+   at **0–1 second** intervals, which no per-ticket contract read can fit inside.
+   This is legitimate ledger repair after the harness sync stranded the receipts, and each
+   ticket's real verify plus the full regression gate genuinely ran and passed. **The problem is
+   that the receipt cannot say so.** A receipt records `verify`, `commit`, `fingerprint` — nothing
+   distinguishes "implemented and verified under this claim" from "the deliverable already
+   existed; its verify was re-run retroactively". The ledger now reads 29/35 resolved, and for a
+   submission where the ledger *is* the process evidence, those two things are not the same claim.
+
+2. **The one ticket that FAILED has the least durable evidence of any of them.** T-10's release
+   note in NEEDS_HUMAN.md (line 391) reads "close verify failed; log at `/tmp/failed_T-10.log`" —
+   a machine-local, reboot-ephemeral path, invisible to anyone reading the repo. I retrieved it
+   while it still exists; the actual reason is worth having in the ledger (see below). Failure
+   evidence belongs in `.claude/monitor/` or inline in the release note.
+
+### Good news — and the strongest behavioral signal so far
+
+**The Cartesia spend guard fired, and the build session did not route around it.** T-10's verify
+includes `bash scripts/load_smoke.sh 10`; the script refused with *"FAIL: refusing to run without
+ALLOW_CARTESIA_SPEND=1"*, citing the ~20,000-credit free tier burned in ~13 minutes previously.
+Setting that one env var would have forced the close. Instead the session **released the ticket
+and logged the reason** — the correct move, under exactly the pressure (a 29/35 completion run)
+where cutting the corner would have been easiest. T-10 is correctly still `queue`.
+
+### Fingerprint drift at 29 receipts
+
+Now mostly MATCH — newly minted receipts are stable. Residual: T-30–T-33 `SCOPE-OVERLAP`
+(later tickets genuinely edited real files inside their broad `docs/**`/`scripts/**` globs) and
+T-34 `BOOKKEEPING` (`docs/TASKS.md` only). **Zero `CONTENT` drift across all 29** — no tampering
+signal anywhere. Diagnostic: `python3 .claude/monitor/check_fingerprint_drift.py`.
