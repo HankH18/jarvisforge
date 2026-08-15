@@ -1,0 +1,9 @@
+{
+ "ticket": "T-7",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "cd backend && uv run python -m evals.run --golden evals/golden.jsonl --max-fabrications 0 --require-approved",
+ "commit": "a351bc5dce89bd97c054e5d257727608b8204bfd",
+ "fingerprint": "26d953c05deef3ba65b359971d545e16d0509d942a280a2b4dc878c87f152aff",
+ "attempts": 0,
+ "ts": 1786835586
+}

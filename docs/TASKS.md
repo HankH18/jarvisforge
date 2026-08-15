@@ -56,7 +56,7 @@
 - **Depends on**: T-2 · **parallel_safe**: true
 - **Non-goals**: No semantic turn-detection model swaps; LiveKit defaults + tuning only
 
-### T-7: Grounding eval harness passes with zero fabrications on approved golden set  `[queue]`
+### T-7: Grounding eval harness passes with zero fabrications on approved golden set  `[resolved]`
 - **Objective**: evals/golden.jsonl (>=30 cases: grounded answers, forced refusals, memory recalls) + evals.run executing cases against synthesize_grounded with fixture tools; Hank approves the golden set (R6a external ground truth).
 - **Acceptance**: 1) golden.jsonl has >=30 cases in the pinned schema covering all three case types 2) Hank has reviewed and approved golden.jsonl (approval noted in the file header comment) - REQUIRED before close 3) evals.run reports 0 fabrications and 0 wrong-refusals; nonzero exits nonzero
 - **Verify**: `cd backend && uv run python -m evals.run --golden evals/golden.jsonl --max-fabrications 0 --require-approved`
