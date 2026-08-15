@@ -208,7 +208,7 @@
 - **Depends on**: none · **parallel_safe**: false
 - **Non-goals**: Does not approve the golden set; Does not change any case's content or the scoring verdicts
 
-### T-26: Package-safe asset resolution and runtime-output hygiene  `[queue]`
+### T-26: Package-safe asset resolution and runtime-output hygiene  `[resolved]`
 - **Objective**: cadence/fillers.py resolves ASSETS_DIR as Path(__file__).resolve().parents[3] / 'assets' / 'fillers', which is correct only when the package is run from the source tree; installed as a wheel the parent chain differs and the filler bank cannot load, so T-15's cadence silently degrades in exactly the container T-9 deploys. Separately backend/var/ has no ignore rule and backend/var/latency.jsonl is now tracked, so per-run telemetry churns in every diff and would ride into T-13's submission zip. The same gap covered .gstack/ earlier: .gitignore has rules for .venv/, dist/, .env*, .claude/evidence/ and .DS_Store, but none for runtime output.
 - **Acceptance**: 1) Filler assets resolve correctly both from a source checkout and from an installed distribution; a test asserts resolution does not depend on the parent-directory depth of __file__ 2) The deployed image is shown to load the filler bank - a container or import-path test, not only a local run 3) backend/var/ and other runtime output directories are gitignored, and backend/var/latency.jsonl is untracked without losing the committed measurement history referenced by docs/latency-report.md 4) docs state where deployed latency records are collected from, since latency_report.py's default input is a local repo path that deployed runs never write to
 - **Verify**: `cd backend && uv run pytest tests/cadence -q && uv run ruff check src`
