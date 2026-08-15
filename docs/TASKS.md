@@ -40,7 +40,7 @@
 - **Depends on**: T-2 · **parallel_safe**: true
 - **Non-goals**: No embedding index; no write actions on repos (PR-opening is T-11)
 
-### T-5: Cross-session memory round-trips through self-hosted mem0 on pgvector  `[queue]`
+### T-5: Cross-session memory round-trips through self-hosted mem0 on pgvector  `[resolved]`
 - **Objective**: MemoryStore protocol implemented on mem0 OSS + Postgres/pgvector (docker-compose for local dev); session turns persisted; search surfaces prior-session facts as ToolResults; preferences table created (R3).
 - **Acceptance**: 1) Round-trip test: fact stored under user U in session A is returned by search(U, ...) in a new session B 2) search results are ToolResult source=memory:mem0 feeding synthesize_grounded 3) Isolation primitive proven: search(U2) never returns U1 rows (full multi-user lands in T-10) 4) preferences table migrated; get/add_preference round-trip
 - **Verify**: `cd backend && uv run pytest tests/memory -q`
