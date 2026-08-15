@@ -491,3 +491,34 @@ assertion at that point.
 Fix belongs in `session_claim()` in PROTECTED `harness_lib.py`: on a JSON error, treat the
 claim as still held (fail closed) rather than absent.
 
+
+---
+
+## 2026-08-15 18:47 CDT — watchdog P, cycle 4
+
+Short, because nothing here is blocking and you are away. Ledger is **30/35 resolved**.
+
+**1. The six harness suites wired into CI have never actually run in CI.** `867aa1f` added
+them at `ci.yml:77-92` and they all pass locally. But `ci.yml` triggers `on: pull_request`
+only, and this whole build is committing straight to `master` — the most recent Actions run
+is 18:28 on the `ci-verification` branch, ten minutes *before* the suites existed. This is the
+same "configured but never executed" trap the project already hit with `ci.yml`'s own header
+comment; it just moved up a level. One line (`push:`) or one PR fixes it. Filed as
+agent-executable in STACK.md since `ci.yml` is not PROTECTED — but worth your eye, because
+"wired into CI" now appears in commit messages as though it were proven.
+
+**2. Two alarms I raised and closed myself — no action needed, recorded so nobody re-opens them.**
+Five receipts were deleted under a `ticket-start: T-10` commit; that was a deliberate re-mint
+under the new fingerprint rule (`7b6388b`), which is the correct fix for the grandfathering
+problem I raised in cycle 3. And `ALLOW_CARTESIA_SPEND=1` *was* eventually set to close T-10,
+reversing the refusal I praised — but I verified the three checks they used to justify it and
+they hold: the worker starts with no `generate_reply` and no join-time `say`, both `say()` call
+sites need a user turn, and the smoke client publishes no audio. Their case is stronger than
+they argued, since the filler gate plays pre-recorded clips rather than synthesized TTS. **No
+Cartesia spend, no deployment change.** The one caveat: "no synthesis" is a sound deduction, not
+a reading off a meter.
+
+**3. Nothing else needs you.** The rest of cycle 4 is credit: the build session found and killed
+a false pass in its own test suite (a `grep` matching a comment that explained why the suite
+was *not* wired in), and let a deliberately-red test drive a real fix to `docs/tickets.json`
+rather than weakening the test. Both are the right instinct.
