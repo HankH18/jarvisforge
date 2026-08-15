@@ -88,7 +88,7 @@
 - **Depends on**: T-9 · **parallel_safe**: false
 - **Non-goals**: No roles/orgs; no billing; no LiveKit self-hosting even if Cloud free-tier concurrency caps bite - flag to human instead
 
-### T-11: Bonus: 'fix issue #N' opens a real PR with audible progress  `[queue]`
+### T-11: Bonus: 'fix issue #N' opens a real PR with audible progress  `[resolved]`
 - **Objective**: run_fix_job: background Claude Agent SDK run in isolated workdir with scoped GITHUB_TOKEN against a user-controlled test repo; announces start/progress/PR-opened via data channel + TTS; opens PR, never merges (R10).
 - **Acceptance**: 1) Job orchestration unit-tested with a mocked agent (states: started -> progress -> pr_opened|failed) 2) Announcements emitted at each state transition 3) One recorded live run against the designated test repo produced an open PR (PR URL committed to docs/agent-pr-demo.md) 4) No merge or force-push capability in the token scope
 - **Verify**: `cd backend && uv run pytest tests/agent_pr -q`
