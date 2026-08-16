@@ -70,7 +70,17 @@ import shlex
 #          `rest` into one line before executing it, so scanning the raw
 #          text for a literal newline character is sufficient to catch it
 #          without separately modeling shell continuation syntax.
-_UNSAFE_RAW_RE = re.compile(r"\$\(|`|\r|\n")
+#   \$     ANY dollar sign, not just `$(`. Command substitution was blocked
+#          while plain variable expansion was not, so
+#          `gh pr create --body "$GITHUB_TOKEN"` was APPROVED -- the guard
+#          reads it as an inert quoted string, and the shell expands it into
+#          the credential, publishing the token in a public PR body. The
+#          quotes make it worse, not better: `"$X"` looks safest of all to a
+#          tokenizer. This job never legitimately needs a `$`, so the whole
+#          character is refused rather than trying to distinguish safe
+#          expansions from dangerous ones -- `${X}`, `$X`, `$'...'` and
+#          arithmetic `$((...))` are all one rule this way.
+_UNSAFE_RAW_RE = re.compile(r"\$|`|\r|\n")
 
 # shlex's `punctuation_chars=True` mode tokenizes these as their own tokens
 # when they appear outside quotes (and only outside quotes -- `"a && b"` is
@@ -151,7 +161,21 @@ def _check_git_push(rest: list[str]) -> tuple[bool, str]:
         return False, "the only allowed push remote is 'origin'"
     if ":" in branch:
         return False, "explicit local:remote refspecs are not allowed -- push a plain branch name"
-    if branch.lstrip("+").lower() in _PROTECTED_BRANCHES:
+    # Compare the BRANCH, not the spelling of it. `git push origin main` was
+    # blocked while `git push origin refs/heads/main` sailed through, because
+    # the literal string "refs/heads/main" is not in _PROTECTED_BRANCHES --
+    # git resolves both to the same branch, so R10 was one prefix away from
+    # being bypassed entirely. Anything that is not a plain branch name is
+    # refused outright rather than normalised: `refs/` spellings are not
+    # needed by this job, and each additional accepted form is another shape
+    # this comparison has to be right about.
+    candidate = branch.lstrip("+")
+    if "/" in candidate and candidate.lower().startswith("refs/"):
+        return False, (
+            "fully-qualified refs are not allowed -- push a plain branch name "
+            "(a `refs/heads/...` spelling would bypass the main/master check)"
+        )
+    if candidate.lower() in _PROTECTED_BRANCHES:
         return False, "pushing directly to main/master is never allowed (R10)"
     return True, ""
 
