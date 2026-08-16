@@ -54,4 +54,68 @@ describe('App: passive mode toggle', () => {
     });
     expect(toggle).not.toBeChecked();
   });
+
+  // Defect A (Hank's report): the checkbox used to do nothing when passive
+  // mode couldn't actually start -- `void controller.start()` inside
+  // usePassiveWakeSession.ts discarded the rejection, so the box stayed
+  // checked and nothing explained why nothing was listening.
+
+  it("disables the toggle and explains why when no Porcupine access key is configured (the real, un-overridden factory)", () => {
+    // No `wake` prop here on purpose -- this exercises the real
+    // wake/createWakeDetector.ts factory, not a test double. There is no
+    // VITE_PORCUPINE_ACCESS_KEY in this checkout (see createWakeDetector.ts's
+    // header), so this is the exact path a deployed build without one hits.
+    const session = createFakeSession()
+    const tokenFn = fakeFetchToken({ token: 'tok', url: 'wss://jarvis.test/rtc' })
+
+    render(
+      <App session={{ createSession: () => session, fetchToken: tokenFn, identity: 'web-no-key' }} />,
+    )
+
+    const toggle = screen.getByRole('checkbox', { name: /passive listening/i })
+    expect(toggle).toBeDisabled()
+    expect(toggle).not.toBeChecked()
+
+    const note = screen.getByTestId('passive-unavailable')
+    expect(note).toHaveTextContent(/VITE_PORCUPINE_ACCESS_KEY/)
+    expect(note).toHaveTextContent(/console\.picovoice\.ai/)
+    // `disabled` is the actual contract a real browser enforces (unlike
+    // jsdom's fireEvent, which -- unrealistically -- still fires a click
+    // on a disabled input, so simulating "the user can't click this" isn't
+    // meaningful to assert here); toBeDisabled() above is what's load-bearing.
+  })
+
+  it("surfaces a start failure in the UI and resets the checkbox, instead of leaving it checked with nothing running", async () => {
+    const session = createFakeSession()
+    const tokenFn = fakeFetchToken({ token: 'tok', url: 'wss://jarvis.test/rtc' })
+    // A detector factory that's available (so the toggle is enabled) but
+    // fails when actually invoked -- standing in for any real-world start
+    // failure (mic permission denied, model load failure, ...), not just
+    // the missing-key case covered by the test above.
+    const failingCreateDetector = async (): Promise<never> => {
+      throw new Error('mic permission denied')
+    }
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn, identity: 'web-wake-fail' }}
+        wake={{ createDetector: failingCreateDetector }}
+      />,
+    )
+
+    const toggle = screen.getByRole('checkbox', { name: /passive listening/i })
+    expect(toggle).not.toBeDisabled()
+
+    fireEvent.click(toggle)
+    // Optimistic: reflects the click immediately, before start() settles.
+    expect(toggle).toBeChecked()
+
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked()
+    })
+    expect(screen.getByTestId('passive-error')).toHaveTextContent('mic permission denied')
+    expect(screen.getByTestId('passive-error')).toHaveAttribute('role', 'alert')
+    // Nothing claims to be listening once the toggle has reset.
+    expect(screen.queryByTestId('passive-state')).not.toBeInTheDocument()
+  })
 });

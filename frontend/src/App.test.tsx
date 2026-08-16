@@ -4,6 +4,12 @@ import App from "./App";
 import { createFakeSession, fakeFetchToken } from "./test/fakes";
 import type { AuthState } from "./auth/useClerkAuth";
 
+/** Matches a crypto.randomUUID() string -- the shape of the room id the
+ * client now generates for an anonymous caller (App.tsx's anonymousRoom),
+ * since there is no human-typed room field to assert an exact value from
+ * anymore. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** A signed-in AuthState double. The room-name field is only ever a UX
  * affordance -- the actual authorization boundary is server-side
  * (backend jarvis.server.app, P0 fix: authenticated-mode room is derived
@@ -45,9 +51,6 @@ describe("App", () => {
     expect(agentState).toHaveTextContent("Not connected");
     expect(screen.getByTestId("transcript-empty")).toBeInTheDocument();
 
-    const roomInput = screen.getByRole("textbox", { name: "Room name (optional)" });
-    fireEvent.change(roomInput, { target: { value: "control-room" } });
-
     fireEvent.click(screen.getByRole("button", { name: "Join room" }));
 
     // Transient state, asserted immediately (not via waitFor, which could
@@ -58,7 +61,11 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
     });
 
-    expect(tokenFn.calls).toEqual([{ identity: "web-e2e", room: "control-room" }]);
+    // No room field exists to type into anymore -- the client generates its
+    // own room id for this anonymous session (App.tsx's anonymousRoom).
+    expect(tokenFn.calls).toHaveLength(1);
+    expect(tokenFn.calls[0].identity).toBe("web-e2e");
+    expect(tokenFn.calls[0].room).toMatch(UUID_RE);
     expect(session.connectCalls).toEqual([{ url: "wss://jarvis.test/rtc", token: "tok-e2e" }]);
     expect(screen.getByRole("button", { name: "Mute microphone" })).toBeInTheDocument();
 
@@ -144,7 +151,7 @@ describe("App", () => {
     expect(tokenFn.calls).toEqual([{ identity: "web-signed-in", room: null }]);
   });
 
-  it("still shows the free-form room field when signed out (anonymous/dev mode unaffected)", () => {
+  it("has no free-form room field when signed out either -- the client generates its own room id", async () => {
     const session = createFakeSession();
     const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
 
@@ -152,8 +159,45 @@ describe("App", () => {
       <App session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-anon" }} />,
     );
 
-    expect(screen.getByRole("textbox", { name: "Room name (optional)" })).toBeInTheDocument();
+    // This is a voice assistant -- nobody should be asked to invent a room
+    // name, signed in or not (Hank's report). No note either: there's
+    // nothing to explain when there was never a control to begin with.
+    expect(
+      screen.queryByRole("textbox", { name: "Room name (optional)" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId("room-note-signed-in")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+    await waitFor(() => {
+      expect(tokenFn.calls).toHaveLength(1);
+    });
+    expect(tokenFn.calls[0]).toEqual({ identity: "web-anon", room: expect.stringMatching(UUID_RE) });
+  });
+
+  it("generates a fresh anonymous room id per mount, not one fixed constant", async () => {
+    // Guards against a "fix" that hardcodes a single literal in place of
+    // the input -- that would also make the field disappear, but every
+    // anonymous tab would collide in the same room.
+    const tokenFnA = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+    const { unmount } = render(
+      <App
+        session={{ createSession: () => createFakeSession(), fetchToken: tokenFnA, identity: "web-anon-a" }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+    await waitFor(() => expect(tokenFnA.calls).toHaveLength(1));
+    unmount();
+
+    const tokenFnB = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+    render(
+      <App
+        session={{ createSession: () => createFakeSession(), fetchToken: tokenFnB, identity: "web-anon-b" }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+    await waitFor(() => expect(tokenFnB.calls).toHaveLength(1));
+
+    expect(tokenFnA.calls[0].room).not.toBe(tokenFnB.calls[0].room);
   });
 
   describe("sign-out tears down the live session (P1: shared-device fix)", () => {

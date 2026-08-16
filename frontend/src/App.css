@@ -66,26 +66,12 @@
   gap: 6px;
 }
 
-.app__room-label {
+/* Explanatory note shown in place of the passive-listening toggle's
+   effect when it can't run in this build -- see wake/createWakeDetector.ts. */
+.app__passive-note {
   font-size: 13px;
+  line-height: 1.4;
   color: var(--text-dim);
-}
-
-.app__room-input {
-  height: 44px;
-  padding: 0 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-}
-
-.app__room-input::placeholder {
-  color: var(--text-dim);
-}
-
-.app__room-input:disabled {
-  opacity: 0.5;
 }
 
 /* ---- Agent state indicator ----

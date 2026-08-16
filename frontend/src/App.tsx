@@ -4,7 +4,7 @@ import { AgentStateIndicator } from './components/AgentStateIndicator'
 import { TranscriptView } from './components/TranscriptView'
 import { Controls } from './components/Controls'
 import { usePassiveWakeSession } from './state/usePassiveWakeSession'
-import { createWakeDetector } from './wake/createWakeDetector'
+import { createWakeDetector, isWakeDetectorConfigured } from './wake/createWakeDetector'
 import type { WakeDetector } from './wake/wakeDetector'
 import { useClerkAuth, type AuthState } from './auth/useClerkAuth'
 import { createAuthFetchToken } from './auth/authFetchToken'
@@ -41,11 +41,42 @@ export default function App(props?: {
     fetchToken: props?.session?.fetchToken ?? authFetchToken,
   }
   const session = useJarvisSession(sessionOptions)
-  const [roomName, setRoomName] = useState('')
+
+  // P0 fix follow-up: once signed in, the server ignores any client-
+  // supplied room entirely and always mints a token for the caller's own
+  // server-derived room (backend jarvis.server.app._room_for_authenticated_
+  // identity) -- so a free-text room field would be a false affordance
+  // that silently does nothing. There is no such field for anyone now
+  // (see anonymousRoom below -- Hank: "This is a voice assistant. Why are
+  // we going and setting custom room names?"), but `isSignedIn` still
+  // decides what room this tab sends (null here vs. the generated id
+  // below) and whether the footer shows the informational note instead.
+  const isSignedIn = auth.status === 'signed-in'
+
+  // The room an anonymous (signed-out) caller sends -- the wire contract
+  // (lib/token.ts) still takes one, and the server still needs something
+  // to create a room around, but a human should never have to invent a
+  // name for it. Generated once per mount so a manual Join click and a
+  // later wake-triggered join (the `room` passed to usePassiveWakeSession
+  // below) land in the same room. Harmless to compute even when signed
+  // in: the authenticated path below never sends it.
+  const [anonymousRoom] = useState(() => crypto.randomUUID())
+
   // R11 / T-12 acceptance 3: explicit opt-in, default OFF. Passive
   // listening -- and the local (non-LiveKit) mic capture it implies --
   // never starts unless the user turns it on themselves.
   const [passiveModeEnabled, setPassiveModeEnabled] = useState(false)
+  // Set only when a start() attempt actually fails (see onStartError
+  // below). Cleared on every subsequent toggle interaction so a stale
+  // failure message never outlives the state that caused it.
+  const [passiveError, setPassiveError] = useState<string | null>(null)
+
+  // Vite inlines VITE_-prefixed vars at BUILD time (wake/createWakeDetector.ts),
+  // so whether passive mode can work at all is a fixed fact about this
+  // bundle, knowable up front -- no need to let a user tick the box and
+  // find out it fails. A test-injected detector (wake.createDetector) is
+  // always treated as available; it's standing in for a working one.
+  const wakeAvailable = props?.wake?.createDetector !== undefined || isWakeDetectorConfigured()
 
   const createDetector = props?.wake?.createDetector ?? createWakeDetector()
   const passiveState = usePassiveWakeSession({
@@ -53,22 +84,20 @@ export default function App(props?: {
     createDetector,
     endpoint: session,
     status: session.status,
-    room: roomName.trim() === '' ? null : roomName.trim(),
+    room: isSignedIn ? null : anonymousRoom,
+    onStartError: (message) => {
+      setPassiveError(message)
+      setPassiveModeEnabled(false)
+    },
   })
 
   const isConnected = session.status === 'connected'
-  const isConnecting = session.status === 'connecting'
-  // P0 fix follow-up: once signed in, the server ignores any client-
-  // supplied room entirely and always mints a token for the caller's own
-  // server-derived room (backend jarvis.server.app._room_for_authenticated_
-  // identity) -- so a free-text room field would be a false affordance
-  // that silently does nothing. Hide it rather than let a signed-in user
-  // believe typing a room name controls where they land.
-  const isSignedIn = auth.status === 'signed-in'
 
   const handleJoin = () => {
-    const trimmed = roomName.trim()
-    void session.join(trimmed === '' ? null : trimmed)
+    // Signed-in: the server derives the room from the verified identity
+    // and ignores whatever is sent (see isSignedIn's comment above) --
+    // null is honest about that. Signed-out: the room this tab generated.
+    void session.join(isSignedIn ? null : anonymousRoom)
   }
 
   // P1 fix: sign-out must tear down the live LiveKit session -- leave the
@@ -134,32 +163,33 @@ export default function App(props?: {
           </p>
         )}
 
-        {!isConnected && !isSignedIn && (
-          <div className="app__room">
-            <label htmlFor="room-name" className="app__room-label">
-              Room name (optional)
-            </label>
-            <input
-              id="room-name"
-              type="text"
-              className="app__room-input"
-              placeholder="Leave blank to start a new room"
-              value={roomName}
-              onChange={(event) => setRoomName(event.target.value)}
-              disabled={isConnecting}
-              autoComplete="off"
-            />
-          </div>
-        )}
-
         <label className="app__passive-toggle">
           <input
             type="checkbox"
             checked={passiveModeEnabled}
-            onChange={(event) => setPassiveModeEnabled(event.target.checked)}
+            disabled={!wakeAvailable}
+            onChange={(event) => {
+              // Clear any error from a previous attempt on every toggle
+              // interaction (on or off) -- it belongs to that attempt, not
+              // to whatever the user does next.
+              setPassiveError(null)
+              setPassiveModeEnabled(event.target.checked)
+            }}
           />
           Passive listening (say "Jarvis")
         </label>
+        {!wakeAvailable && (
+          <p className="app__passive-note" data-testid="passive-unavailable">
+            Passive listening is unavailable in this build — no Porcupine access key was
+            configured at build time. Set VITE_PORCUPINE_ACCESS_KEY (get one from
+            https://console.picovoice.ai/) and rebuild to enable it.
+          </p>
+        )}
+        {passiveError && (
+          <p className="app__error" role="alert" data-testid="passive-error">
+            {passiveError}
+          </p>
+        )}
         {passiveModeEnabled && (
           <p className="app__passive-state" data-testid="passive-state">
             {passiveState === 'passive' ? 'Listening for "Jarvis"…' : null}
