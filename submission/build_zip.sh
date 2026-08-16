@@ -11,6 +11,15 @@
 #   .git (not the deliverable)                       rebuildable dependency trees)
 #   backend/var, ./var        (per-run telemetry, see .gitignore)
 #   .claude/claims            (machine-local session state)
+#   .claude/evidence-v1       26 receipts from the OLD .pass harness, superseded
+#                             by .claude/evidence/*.json. Shipping both formats
+#                             invites a reader to check the wrong one -- and the
+#                             v1 copies attest to commits that no longer describe
+#                             the tree. Excluded 2026-08-16.
+#   heartbeat.jsonl           299 KB of watchdog liveness pings -- ~18% of the
+#                             whole archive, and of no use to a reader. It is
+#                             matched by name rather than by path because it is
+#                             append-only machine output wherever it lands.
 #   .claude/evidence          (regeneratable verify receipts)
 #   .codegraph                (local dev-tool index, not source)
 #   __pycache__, .pytest_cache, .ruff_cache, *.egg-info, frontend/dist,
@@ -49,12 +58,14 @@ find . \
      -o -name .codegraph \
      -o -path './backend/var' -o -path './var' \
      -o -path './.claude/claims' -o -path './.claude/evidence' \
+     -o -path './.claude/evidence-v1' \
      -o -path './frontend/dist' \
   \) -prune \
   -o -type f \
      ! -name '.env' \
      ! -name '.DS_Store' \
      ! -name '*.zip' \
+     ! -name 'heartbeat.jsonl' \
      -print \
   | sed 's#^\./##' \
   > "$FILELIST"
