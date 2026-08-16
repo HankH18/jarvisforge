@@ -1275,3 +1275,100 @@ tool `data` as untrusted content rather than instructions would pair with it.
 
 **Filed P2** — the code is not wrong, and the claim it makes is true as written. What is missing
 is any evidence for a property a voice assistant reading live GitHub issues plainly needs.
+
+---
+
+# 2026-08-15 22:45 CDT — SESSION SUMMARY (watchdog P, cycles 1–21)
+
+Seven hours, 21 cycles, 15:33 → 22:45. **24 findings filed: 1 P0, 10 P1, 8 P2, 2 trivial, plus
+3 harness rows predating my severity column.** Baseline `36e1eef`; the build moved through ~200
+commits and the ledger from **0/35 resolved to 33/35** in that window.
+
+## Verdict
+
+**The code is in good shape. The evidence system around it is what needed watching.**
+
+Tests, lint, production build, six harness suites, and a live Fly deployment are all green
+simultaneously and stayed green the entire session — I re-ran the full gate at rest four times
+and it never once failed. Not one finding I filed was a failing test. **Every one sat outside
+the green:** in deployment posture, in what a guard permits, in what a receipt means, and in the
+gap between a documented capability and the shipped configuration. That is the honest headline —
+a test suite was never going to catch any of this, which is precisely why the watchdog role
+earned its keep here.
+
+## Incidents
+
+1. **I caused one.** A cycle-2 audit subagent's scratchpad clone failed, and the `git checkout
+   <sha>` written for it executed in the project repo — detaching HEAD mid-close so
+   `ticket-close: T-28` and its receipt landed off-branch **while reporting success**. Caught by
+   the build agent running `git status` before pushing. Nothing lost; I verified the repair
+   independently. My prompt had forbidden mutating git commands in capitals; that was not enough,
+   and the lesson is that a fan-out must be structurally unable to touch a live tree, not merely
+   told not to. No subagent of mine ran in the repo again.
+2. **Five receipts deleted under a `ticket-start` commit** — looked like evidence destruction,
+   was a deliberate re-mint. Closed as not-a-finding.
+3. **`ALLOW_CARTESIA_SPEND=1` was set** after I had praised its refusal. I verified the three
+   checks used to justify it and they hold; the override was sound and better documented than
+   the refusal had been.
+
+## Enforcement holes observed
+
+- **The scope guard binds only sessions that volunteered.** Byte-identical to my baseline
+  (sha256 `269e3b9b…`); `eb5f2b2` flipped two tests from `assert_deny` to `assert_allow`, so the
+  28/28 green reflects tests changed to match code. Ruled intended and deferred — a decision,
+  not a bug, but the docs overstated it.
+- **The regression gate was dead code** (`full_verify` absent) — since fixed, and fixed well.
+- **The integrity check corrupted the tree it inspected** (`git add -A`) — since fixed.
+- **The fingerprint invalidated itself at close** — I wrote and tested the patch; it shipped as
+  `24d9e78`.
+- **`.claude/monitor/**` is a code-laundering path**, and I used it: two executable `.py` files
+  I placed there were committed under `ticket-close: T-5`.
+
+## Protocol and doc drift
+
+- Rule 4 forwards readers to a **"Scope enforcement" section that does not exist** — the file
+  has three headings. An agent reading the protocol today learns *less* than before that edit.
+- `WATCHDOG.md` names a `REPORT.md` that has never existed; practice is this file.
+- `ci.yml`'s header outlived its truth twice — first claiming CI unproven after it had passed,
+  then wiring six suites into a workflow that only triggers on `pull_request` while all work
+  lands on `master`.
+
+## Open gaps — top 5, in order
+
+1. **`submission-gate-red` (P0)** — `verify_submission.sh` [1/6] fails; every STALE entry is
+   scope-overlap, not real drift. **Being actively remediated as I write**: the build session is
+   re-minting receipts and STALE has fallen 14 → 9 in the last ten minutes.
+2. **`token-exfil-via-parameter-expansion` (P1)** — the guard blocks `$(` but not `$VAR`, and the
+   token is in the agent's env. One character class fixes it.
+3. **`unauthenticated-cost-abuse` (P1)** — open endpoint, no rate limit, `agent_name` unset, three
+   metered vendors. Read it **before topping up Cartesia for the video**.
+4. **`r3-inert-on-deployment` (P1)** — a headline claim that cannot be demonstrated on the
+   deployed app, and it is on the demo path.
+5. **`push-guard-refs-prefix-bypass` (P1)** — `refs/heads/main` clears a guard that blocks `main`.
+
+Items 2 and 5 are the same file and fix in one pass.
+
+## What worked
+
+The build session was the most self-correcting I have audited. It **killed a false pass in its
+own test suite** (a `grep` matching a comment explaining why the suite was *not* wired in), let a
+**deliberately-red test drive a real plan fix** rather than weakening the test, **respected a
+spend guard** under completion pressure, **caught my detached-HEAD damage** before pushing, and
+wrote `LEDGER-PROVENANCE.md` — which states in one line what most projects would bury: *"29 of 35
+tickets have a verified-at-a-commit receipt. Zero of 35 have a receipt proving the work was done
+under that claim."*
+
+`docs/latency-report.md` published its own worst number (p95 5957 ms) under a "superseded, NOT
+current evidence" heading instead of hiding it. `check_eval_report.py` rejected 9 of 10 tamper
+attempts. `publishGating.test.tsx` is a genuine structural proof. `guard.py` denied 14 of 20
+attacks. None of that is faint praise — I went looking for the opposite in every case.
+
+## On my own filing accuracy
+
+Six alarms I raised and killed myself before filing: the skipped regression gate, the deleted
+receipts, the 5957 ms discrepancy, a 40-char "sha256" that was my own truncation, T-5's memory
+suite, and 12 of 13 hits from a mechanical sweep. Two corrections issued after filing: my
+"23 of 25 empty close commits" (actually 25 of 25 — the two files were mine) and "all three
+cycle-1 defects repaired" (two were). The prior watchdogs' failure mode was attaching reproduced
+counts to unreproduced claims; I tried to make the opposite error instead, and preferred
+recording a killed alarm over a quiet deletion.
