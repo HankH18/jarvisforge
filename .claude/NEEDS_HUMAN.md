@@ -988,3 +988,64 @@ already-fixed `user_id::uuid` regression.
 
 This is the same shape as the pattern that keeps recurring here: built, tested, correct — and
 not connected to what a user of the live URL actually gets.
+
+---
+
+# 2026-08-15 22:45 CDT — WATCHDOG P: FINAL REPORT. Your prioritized list.
+
+21 cycles over seven hours, 15:33–22:45. **24 findings: 1 P0, 10 P1, 8 P2, 2 trivial.** Full
+detail in `.claude/monitor/AUDIT.md`; every row is in `.claude/monitor/STACK.md`. All of them
+re-verified as still reproducing at HEAD in cycle 19.
+
+**Verdict: the code is in good shape; the evidence system around it is what needed watching.**
+Tests, lint, build, six harness suites and a live deployment were green simultaneously the whole
+session. **Not one of my 24 findings was a failing test.** They all sit outside the green.
+
+## Do these before you submit, in this order
+
+1. **Nothing — item 1 is already being handled.** Your build session came back at ~22:40 and is
+   re-minting receipts to clear the staleness gate (`submission-gate-red`, the P0). STALE has
+   fallen 14 → 9 while I was writing this. Let it finish, then re-run
+   `bash scripts/verify_submission.sh`.
+2. **Fix `guard.py` — two bugs, one pass, both agent-doable.** `gh pr create --body
+   "$GITHUB_TOKEN"` is approved by the guard and would publish your token (add `\$` to
+   `_UNSAFE_RAW_RE`); and `git push origin refs/heads/main` clears the guard that blocks
+   `main` (strip the ref prefix before comparing). Details and validated fixes in STACK.md.
+3. **Decide the deployment posture before you top up Cartesia.** The endpoint is open, has no
+   rate limit, and the worker has no `agent_name`, so it joins every room — an anonymous caller
+   can drive spend on three metered vendors. Cheapest: record the video, then take the app down.
+   Best value: set the Clerk secrets, which closes this *and* the open-room-join *and* makes R3
+   demonstrable, all at once.
+4. **R3 will fail on camera as configured.** Every page load gets a new memory namespace on the
+   anonymous deployment, so "persistent cross-session memory" cannot be shown. Either persist the
+   identity in `localStorage` (small, agent-doable) or record that segment with Clerk on.
+5. **Answer SPEC open question 1 before recording.** T-13's acceptance #1 is still the literal
+   string `PLACEHOLDER - BLOCKED ON SPEC open question 1`. Decide what the video must contain
+   first, or you will record it twice.
+
+Then the two zip fixes (26 superseded `evidence-v1` receipts and a 264 KB heartbeat log still
+ship) at the final rebuild, which `SUBMISSION.md` step 7 already tells you to do anyway.
+
+## One thing to decide, not fix
+
+The zip ships `NEEDS_HUMAN.md` and `AUDIT.md` — ~70 KB of candid internal criticism, most of it
+mine, straight to your graders. There is a real case either way. I have not touched it; I only
+want it to be a choice rather than an accident of the exclusion list.
+
+## What your build session got right
+
+It killed a false pass in its own test suite, let a deliberately-red test drive a real plan fix
+instead of weakening the test, respected the Cartesia spend guard under completion pressure,
+caught and correctly repaired damage **I** caused, and wrote `LEDGER-PROVENANCE.md` — which says
+in one line what most projects would bury. That is unusually good conduct and it is worth knowing
+about your own harness.
+
+## What I got wrong
+
+One of my audit subagents detached HEAD on your live tree mid-close, nearly stranding T-28's
+receipt off-branch while the close reported success. Your build agent caught it. I also filed two
+findings whose specifics were wrong and corrected both, and killed six of my own alarms before
+they reached you. The full accounting is at the end of AUDIT.md.
+
+**The cron loop is now stopped.** Restart it any time with `/loop 15m run one jarvisforge
+watchdog cycle (agent P)`.
