@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentState, JarvisEvent, TranscriptEvent, TranscriptRole } from '../lib/types'
 import { fetchToken as defaultFetchToken, TokenError } from '../lib/token'
 import type { RoomSession } from '../lib/room'
+import { anonymousIdentity } from '../lib/deviceId'
 
 /** User-facing copy for a failed join. The underlying error is logged, not shown. */
 function joinErrorMessage(err: unknown): string {
@@ -47,8 +48,23 @@ export interface UseJarvisSessionOptions {
   identity?: string
 }
 
+// R3 fix: was `web-${Math.random()...}` -- a fresh random identity every
+// mount (page load). In anonymous mode (Clerk not configured) that value
+// becomes the LiveKit participant identity verbatim (jarvis.server.app
+// .create_token) and the mem0 memory namespace key (jarvis.pipeline.worker
+// ._resolve_user_id), so a new value every load meant a fresh, empty
+// memory namespace every load -- cross-session memory (R3) was
+// unfalsifiable on the anonymous deployment. `anonymousIdentity()`
+// (lib/deviceId.ts) instead combines a device-local id PERSISTED in
+// localStorage (stable across reloads -- the memory namespace) with a
+// random per-call suffix (unique per session -- the LiveKit participant
+// identity), the same split `session_scoped_identity`/`stable_identity_key`
+// already use for authenticated sessions. This value is IGNORED entirely
+// when signed in (the server derives identity from the verified Clerk
+// token instead, see jarvis.server.app.create_token), so generating it
+// unconditionally here does not touch the authenticated path.
 function generateIdentity(): string {
-  return `web-${Math.random().toString(36).slice(2, 9).padEnd(7, '0')}`
+  return anonymousIdentity()
 }
 
 let lineCounter = 0

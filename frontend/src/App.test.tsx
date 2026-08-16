@@ -200,6 +200,43 @@ describe("App", () => {
     expect(tokenFnA.calls[0].room).not.toBe(tokenFnB.calls[0].room);
   });
 
+  it("R3 fix: the authenticated path is unaffected by the real (device-id-backed) identity generator", async () => {
+    // Every other signed-in test above injects an explicit `identity`
+    // override, which bypasses useJarvisSession's generateIdentity()
+    // entirely -- so none of them would notice if generateIdentity()
+    // itself (now lib/deviceId.ts's anonymousIdentity(), persisted via
+    // localStorage) broke or changed authenticated-mode behaviour. This
+    // test gives no override at all: the REAL generator runs, exactly as
+    // it does in production for a signed-in user. If a future change made
+    // that generator auth-aware in a way that altered what's sent, or
+    // made it throw, or somehow fed the generated identity into the room
+    // instead of null, this is what would fail.
+    window.localStorage.clear();
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok-signed-in-real-identity", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn }}
+        auth={{ useAuth: fakeSignedInAuth }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Join room" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+    });
+
+    // Signed in: room is still always null (server derives it from the
+    // verified Clerk identity, ignoring the body entirely) regardless of
+    // what identity value the client happened to generate.
+    expect(tokenFn.calls).toHaveLength(1);
+    expect(tokenFn.calls[0].room).toBeNull();
+    expect(typeof tokenFn.calls[0].identity).toBe("string");
+    expect(tokenFn.calls[0].identity.length).toBeGreaterThan(0);
+  });
+
   describe("sign-out tears down the live session (P1: shared-device fix)", () => {
     /** A signed-in AuthState double whose signOut records into a shared
      * `order` array (so a test can assert it happened *after* session
