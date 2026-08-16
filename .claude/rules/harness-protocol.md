@@ -46,6 +46,44 @@ Task list name: jarvisforge (a visibility mirror only; the claim ledger rules).
     TASKS.md defines a merge order): separate worktrees via
     `claude --worktree <ticket-id>`, max 3 concurrent, disjoint scopes.
 
+## Scope enforcement — what the guard actually does
+
+Written down because this document used to overstate it, and an agent that
+believes it is fenced in when it is not will act carelessly.
+
+The scope guard binds **only the session that holds the claim.** A session
+holding no claim is unconstrained: it may write anywhere except the
+PROTECTED list. This is deliberate — it is what lets an observer, a
+watchdog, or a session doing non-ticket work function at all (T-21
+acceptance 2 and 3). It is not a bug, and
+`scripts/tests/run_scope_guard_tests.sh` asserts it as specified behavior.
+
+The practical consequence, stated plainly: **for an unclaimed session,
+scope is advisory, not enforced.** Rule 4 is then a rule you keep because
+it is the rule, not because something stops you. Most work in this repo to
+date has happened in unclaimed sessions, which means most of it was never
+scope-checked by anything but the author.
+
+Two things *are* enforced unconditionally, claim or no claim:
+
+- **PROTECTED paths are always denied** — `docs/tickets.json`,
+  `docs/SPEC.md`, `docs/DESIGN.md`, `.claude/hooks/**`,
+  `.claude/scripts/**`, `.claude/settings.json`, `.claude/claims/**`,
+  `.claude/evidence/**`. Checked *before* any claim lookup, so they are
+  denied even for the one ticket whose own declared scope names them. A
+  ticket that needs to change one of these cannot be executed by an agent;
+  that is a plan defect for NEEDS_HUMAN.md.
+- **The close-time integrity check**, which compares everything you changed
+  against the claimed ticket's scope. This catches after the fact what the
+  guard did not catch during. It is the real boundary.
+
+The guard signals denial through **stdout content, not exit status** —
+exit is always 0.
+
+Whether every in-repo session should be constrained by default, with an
+explicit observer exemption, is an open question deferred until after
+submission. See `.claude/NEEDS_HUMAN.md`.
+
 ## Session start
 
 Run `claim.sh status`. If the native task list is empty and you want the
