@@ -1,9 +1,0 @@
-{
- "ticket": "T-34",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "test -f .claude/evidence/T-22.json && bash scripts/tests/run_evidence_tests.sh && bash scripts/tests/run_require_db_wiring_tests.sh",
- "commit": "489df0100f04f6e9aceb09f86c3bfbdf55004579",
- "fingerprint": "c9d09d00c93cbe0475de08fb2e068b04b80785dbd5b22ec2da0f021f405d7273",
- "attempts": 0,
- "ts": 1786836651
-}
