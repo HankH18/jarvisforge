@@ -125,6 +125,14 @@
    "at": "2026-08-15T22:30-05:00",
    "head": "7e036a9",
    "verdict": "FINAL TECHNICAL CYCLE - the last untouched surface: untrusted third-party text into the LLM. NO prompt-injection handling anywhere (every 'injection' hit is a dependency-injection seam) and the golden set has 0 adversarial cases (38 cases: grounded 17, refusal 14, memory 7). Two paths: (a) T-4 fetches LIVE GitHub issue/repo text into tool-result data, which ANSWER_POLICY calls 'the ONLY material you may draw on', with nothing distinguishing content-to-report from instructions-to-obey; (b) ANSWER_POLICY ends 'Honor every listed user preference exactly as written -- verbatim', and prefs come from mem0 keyed on the participant identity, which anon mode lets a client choose - so a planted preference inherits an obey-verbatim instruction. CLAIM: R6's 'zero fabrications' is evidence about COOPERATIVE inputs only - real, and narrower than it reads. NOT CLAIMED: that injection succeeds. DELIBERATELY UNTESTED - proving it needs a live paid model call and unprompted spend is inappropriate on the project whose Cartesia burn is why cycle 15 exists. Filed P2. Cheapest fix: a few adversarial golden cases plus an untrusted-content line in ANSWER_POLICY."
+  },
+  {
+   "n": 21,
+   "at": "2026-08-15T22:45-05:00",
+   "head": "a5433b8",
+   "verdict": "SESSION SUMMARY written to AUDIT.md; prioritized final report written to NEEDS_HUMAN.md; cron job d8ae256c DELETED. 21 cycles, 15:33-22:45, 24 findings (1 P0, 10 P1, 8 P2, 2 trivial). VERDICT: the code is in good shape; the evidence system around it is what needed watching - tests/lint/build/six harness suites/live deployment were green simultaneously all session and NOT ONE of the 24 findings was a failing test; every one sat outside the green. Build session returned ~22:40 and is actively remediating the P0 (re-minting receipts; STALE fell 14->9 during the summary). Top 5 open: submission-gate-red (in progress), token-exfil via $VAR, unauthenticated-cost-abuse, r3-inert-on-deployment, push-guard-refs-prefix-bypass (2 and 5 are one file, one pass). Self-accounting recorded: 1 incident I caused (subagent detached HEAD mid-close), 2 corrections issued after filing, 6 alarms killed before filing."
   }
- ]
+ ],
+ "status": "COMPLETE",
+ "completed_at": "2026-08-15T22:45-05:00"
 }
