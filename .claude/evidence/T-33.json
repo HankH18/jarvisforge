@@ -1,9 +1,0 @@
-{
- "ticket": "T-33",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "(cd backend && uv run pytest tests/grounding -q) && python3 scripts/check_eval_report.py docs/evals/latest.json",
- "commit": "44378939206a371f7b80ee6a089521a6d69b220f",
- "fingerprint": "3d6e7080a680dfae84fc75e556315c0d91ca8d2007a979885e968b293121f273",
- "attempts": 0,
- "ts": 1786829722
-}
