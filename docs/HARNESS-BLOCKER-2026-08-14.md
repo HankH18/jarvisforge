@@ -1,7 +1,6 @@
 # Harness blocker: `cc-factory: harness sync` (dc23222) vs. the T-28..T-34 plan
 
-Written 2026-08-14. Full detail behind the one-line pointer in `.claude/NEEDS_HUMAN.md`.
-Everything here is verified against the real harness, not inferred.
+Written 2026-08-14. Everything here is verified against the real harness, not inferred.
 
 ## What the sync did
 

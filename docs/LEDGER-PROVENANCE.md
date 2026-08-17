@@ -5,7 +5,7 @@ afternoon. That jump is real work being recorded, not work being done — and a 
 who assumes otherwise will over-trust the number. This document says exactly what a
 receipt in `.claude/evidence/` does and does not claim.
 
-Raised by watchdog P (`AUDIT.md`, cycle 3, 18:20) as `retro-receipting-indistinguishable`.
+Raised by watchdog P as `retro-receipting-indistinguishable` (cycle 3, 18:20).
 The watchdog's measurement: **23 of 25 `ticket-close` commits contain zero
 non-bookkeeping file changes**, and the gap between `ticket-close: T-x` and the next
 `ticket-start: T-y` is 0–1 seconds. No implementation happened under those claims.
@@ -130,6 +130,7 @@ That is not a defect in the receipts or in the drift checker; both are reporting
 It is the scope-granularity residual that T-34's own acceptance already concedes. The
 practical consequence is that re-minting the SCOPE-OVERLAP receipts is only worth doing
 once, as the genuinely last action before submission — do it earlier and the next commit
-undoes it. Use `python3 .claude/monitor/check_fingerprint_drift.py` and confirm the only
-verdicts are MATCH and SCOPE-OVERLAP; **CONTENT drift is the row that would actually mean
-something**, and it has been zero throughout.
+undoes it. Run `bash scripts/check_evidence_staleness.sh .` and confirm every STALE
+finding is attributed to a different ticket's commits, not the ticket's own — a
+same-ticket reopen is the row that would actually mean something, and there has been
+none.

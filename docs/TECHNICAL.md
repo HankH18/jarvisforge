@@ -186,13 +186,22 @@ in project memory for the fuller reasoning).
   `CLERK_JWT_KEY` is set server-side (never by anything in the request):
   **authenticated mode** verifies a Clerk session JWT and derives identity
   server-side (a client cannot impersonate another user's memory namespace
-  by editing the request body); **anonymous mode** (the current Fly
-  deployment — no Clerk secrets are set there) falls back to the original,
-  pre-Clerk contract. `scripts/load_smoke.sh` drives 10 concurrent real
-  Clerk-shaped identities through the real auth-gated `/api/token` and
-  holds 10 real LiveKit room connections open simultaneously — deliberately
-  scoped to the transport layer (STT/TTS is separately down, see §5), with
-  no silent SKIP on any missing credential.
+  by editing the request body); **anonymous mode** falls back to the
+  original, pre-Clerk contract. `CLERK_SECRET_KEY` is set on the deployed
+  Fly app and `VITE_CLERK_PUBLISHABLE_KEY` is baked into the frontend
+  bundle at build time (`backend/Dockerfile`), so the live deployment runs
+  authenticated: `POST /api/token` 401s an unauthenticated caller, and the
+  SPA gates the console behind an opaque, centred, full-screen Clerk
+  sign-in modal (`role=dialog`, `aria-modal`, the app behind it
+  `aria-hidden` + `inert`). A signed-out anonymous visitor still gets
+  cross-session memory (R3): `frontend/src/lib/deviceId.ts` persists a
+  pseudonymous device id in `localStorage`
+  (`anon-<uuid>::<per-join-uuid>`), so a reload reuses the same stable
+  memory namespace instead of a fresh random one. `scripts/load_smoke.sh`
+  drives 10 concurrent real Clerk-shaped identities through the real
+  auth-gated `/api/token` and holds 10 real LiveKit room connections open
+  simultaneously — deliberately scoped to the transport layer, with no
+  silent SKIP on any missing credential.
 - **R10 — Agentic issue->PR.** `run_fix_job` (`backend/src/jarvis/agents_pr/`)
   runs the Claude Agent SDK headless in an isolated workdir, authenticated
   via `GIT_ASKPASS` (the token never touches argv), behind a repo
@@ -212,27 +221,20 @@ in project memory for the fuller reasoning).
   pretrained "hey jarvis" ONNX model chain entirely on-device via
   `onnxruntime-web`'s WASM execution provider — keyless, no signup, no env
   var, loaded lazily only once passive mode is switched on. See §5 for the
-  license terms on the vendored model weights and, more importantly, for
-  what detection has and has not actually been verified to do.
+  license terms on the vendored model weights and how detection was
+  confirmed working end-to-end.
 
 ## 5. Known limits — honest state as of 2026-08-14
 
-**R1 (low-latency conversation) is unmet, and currently unmeasurable in
-production.** The deployed Cartesia TTS key is returning HTTP 402
-("Model credits limit reached") on every synthesis call — independently
-confirmed via live Fly logs during `docs/latency-report.md`'s T-9
-redeployment attempt: the worker joins the room, transcribes speech, and in
-some turns even produces LLM response text, but can never speak it, so
-**zero of 55 attempted turns completed** and no `first_audio_ts` was ever
-recorded (`/app/var/latency.jsonl` does not exist on the running container
-at all). This is a billing/ops outage, not a code regression — there is no
-code path in this repo that can produce an upstream 402 — but it means R1
-cannot be measured live right now regardless of how fast the rest of the
-pipeline is. The last *valid* pre-outage measurement (55 turns, ~13-24h
-earlier) was **p95 = 5957.4ms overall, p95 = 1447.9ms even restricted to
-no-lookup turns — both fail the 800ms p95 budget.** R1 is unmet on the best
-evidence available and unverifiable beyond that until Cartesia billing is
-restored.
+**R1 (low-latency conversation) is unmet.** Deployed p95 time-to-first-audio
+on a no-lookup turn is **1122 ms** against the 800 ms target — a ~322 ms
+gap. Every lever was measured, not estimated: region co-location with the
+APIs, a faster Cartesia voice model, Anthropic prompt caching, STT
+endpointing, preemptive TTS — none closes it. The bottleneck is the LLM
+call's own time-to-first-token (~630 ms mean), not TTS or network. The
+decision was to ship the honest measurement rather than mask the gap with
+filler audio. Full breakdown and every ruled-out lever, with evidence: see
+`docs/latency-report.md`.
 
 **The R6a golden eval set is comparatively small.** It has 38 cases (17
 grounded, 14 refusal, 7 memory) — enough to clear R6a's ≥30 floor and it
@@ -257,8 +259,8 @@ in `docs/agent-pr-demo.md` §"Token-scope finding"). This is unresolved as
 of this writing.
 
 **The wake word (R11) engine changed after Picovoice discontinued the
-free tier it was built against, and end-to-end detection is still
-unverified by a human.** Picovoice pulled free-tier Porcupine AccessKeys
+free tier it was built against; end-to-end detection is now confirmed.**
+Picovoice pulled free-tier Porcupine AccessKeys
 entirely and moved to enterprise-only licensing, which made the original
 plan unobtainable regardless of engineering effort — not a scope cut, an
 external one. `frontend/src/wake/porcupineWakeDetector.ts` still exists
@@ -288,20 +290,26 @@ bundle. A page load with passive mode off issues zero wake-related
 requests; enabling the toggle is what triggers the five fetches (the
 runtime chunk, the wasm binary, three model files).
 
-**Detection itself is unverified.** 134 frontend tests pass (19 files, `cd
-frontend && npm run -s test -- --run`), including
-`openWakeWordDetector.test.ts`, but every one of them drives the pipeline
-through fake ONNX sessions returning scores the test dictates — proving the
-buffering/windowing math, the threshold/cooldown gating, and that `start()`
-rejects loudly on a model-load or microphone-permission failure, exactly as
-that test file's own header states. Nothing in the suite has ever run real
-audio through the real `hey_jarvis_v0.1.onnx` weights, and no human has yet
-said "hey Jarvis" at a deployed build to confirm it fires (or that ordinary
-speech doesn't false-trigger it). `createWakeDetector.ts` still fails
-loudly rather than silently degrading when the browser lacks the required
-capability, but "loads and runs without erroring" is not the same claim as
-"detects the wake word" — R11 is implemented and wired in as the default,
-not confirmed working end to end.
+**Detection is confirmed working end to end.** Two real bugs blocked it
+initially, found by reading openWakeWord's own upstream source rather than
+guessing: Web Audio's `getChannelData` returns float32 samples in
+`[-1, 1]`, but the melspectrogram model is calibrated on int16-scale
+magnitudes, so the detector was feeding it audio ~32768x too quiet; and
+openWakeWord applies an explicit `x/10 + 2` rescale to the melspectrogram
+output before the embedding model sees it, which this port had not
+applied. `WAKE_THRESHOLD` (`openWakeWordDetector.ts`, `0.5`) was left
+untouched through both fixes — lowering it would have hidden the bugs
+rather than fixed them. With both landed, a live test against the deployed
+build scored **0.998** on the spoken phrase "hey Jarvis" and produced a
+real wake-triggered room join, observed in the Fly worker logs for job
+`AJ_H5pTAkq853Hf`. 166 frontend tests pass (19 files, `cd frontend && npm
+run -s test -- --run`), including `openWakeWordDetector.test.ts`, covering
+the buffering/windowing math, the threshold/cooldown gating, and that
+`start()` rejects loudly on a model-load or microphone-permission failure,
+against fake ONNX sessions — the live test above is what covers real
+audio through the real `hey_jarvis_v0.1.onnx` weights. `createWakeDetector.ts`
+still fails loudly rather than silently degrading when the browser lacks
+the required capability.
 
 **The three pretrained model weight files are CC BY-NC-SA 4.0, not
 Apache-2.0 like the rest of the stack.** Per openWakeWord's own README,
@@ -317,13 +325,10 @@ real constraint, not a footnote: it would need resolving (clearing rights,
 or swapping in a permissively-licensed wake model) before any commercial
 use of this app.
 
-**Clerk auth is conditional on server configuration, not unconditionally
-on.** The currently deployed Fly app has no `CLERK_SECRET_KEY` /
-`CLERK_JWT_KEY` set, so `/api/token` runs in anonymous mode (trusts the
-client-supplied identity) — a deliberate, human-authorized choice so the
-base MVP demo isn't 401'd by an unconfigured bonus, but it means the live
-deployment is not actually multi-user-isolated right now; that only
-activates once the Clerk secrets are set and the app redeployed.
+**Clerk auth is live on the deployed app.** `/api/token` requires a
+verified Clerk session token and 401s everyone else; the switch is the
+same server-side-only mechanism described in §4 — nothing in the request
+can move a deployed process between modes.
 
 **The filler assets shipped only after a packaging defect was found and
 fixed post hoc (T-26).** The original filler `.wav` clips lived in
@@ -371,12 +376,15 @@ the `cc-factory: harness sync` deleted `.claude/hooks/verify_gate.sh`, so
 there is no longer a single local regression-gate script run at every
 ticket boundary (see `docs/HARNESS-BLOCKER-2026-08-14.md`).
 
-**Evidence staleness.** `scripts/check_evidence_staleness.sh` (T-22) can
-only detect staleness for tickets whose `.claude/evidence/*.pass` receipt
-carries a content fingerprint; 11 receipts predate that mechanism (T-0,
-T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-14, T-23) and report
-`UNVERIFIABLE` rather than a real current/stale verdict. See §6 and
-`docs/SUBMISSION.md` for what this means for submission and the remedy.
+**Evidence staleness.** `scripts/check_evidence_staleness.sh` reports one
+of three verdicts per ticket against `.claude/evidence/*.json` receipts:
+`CURRENT` (scope content matches the receipt's fingerprint), `STALE`
+(a later commit touched a file in that ticket's scope glob — typically
+`SCOPE-OVERLAP`, a different ticket touching a shared directory, not a
+regression in that ticket's own deliverable), or `MISSING` (no receipt at
+all). Run `bash scripts/verify_submission.sh` for the live count. See
+`docs/LEDGER-PROVENANCE.md` for what a receipt does and does not attest,
+and `docs/SUBMISSION.md` for what this means for submission.
 
 **The submission gate is the one place that requires a reachable memory
 database (T-31).** `backend/tests/memory/conftest.py`'s `require_db`
@@ -384,7 +392,7 @@ fixture defaults to *skipping* (loudly, per T-23) the mem0/pgvector
 integration tests when Postgres is unreachable, rather than failing —
 necessary so a plain `cd backend && uv run pytest tests/memory -q` stays
 closable on an offline dev machine or in CI (which SPEC C7 forbids adding
-a Postgres service to). `scripts/verify_submission.sh`'s check `[6/6]` is
+a Postgres service to). `scripts/verify_submission.sh`'s check `[4/4]` is
 the single context that sets `JARVIS_MEMORY_TESTS_REQUIRE_DB=1`, which
 turns that skip into a hard `pytest.fail()` — so a submission can no
 longer go out having silently never exercised the memory integration

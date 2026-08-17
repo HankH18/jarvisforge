@@ -191,8 +191,8 @@ which fire a real `heavy`-tagged tool in production -- against
 covered `$CONVO_MODEL` only** -- it said nothing about the model production
 actually escalates real heavy-tool turns to, which is the heaviest,
 most fabrication-prone path in the system. (One further correction, found
-while implementing this: an earlier assessment of this gap, recorded in
-`.claude/NEEDS_HUMAN.md`, said only the 3 `github_qa`-labeled cases fired
+while implementing this: an earlier assessment of this gap said only the
+3 `github_qa`-labeled cases fired
 the one `heavy` tool. In the actual implementation there are TWO `heavy`
 tools, `github_query` and `load_repo_digest` -- `github_qa` is DESIGN.md's
 original conceptual name for the combined T-4 capability, not a real

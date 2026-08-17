@@ -405,8 +405,8 @@ fired tool bypasses the SDK's own TTS scheduling via `tools_wiring._dispatch`'s 
 require a live session).
 
 **2026-08-15 UPDATE (preemptive change only -- measurements above and below are untouched):**
-this lever is now OFF by default. It was one of the causes of a Cartesia credit-burn incident
-(`.claude/NEEDS_HUMAN.md`, "ANSWERED -- where the free Cartesia credits went"): Cartesia bills
+this lever is now OFF by default. It was one of the causes of a Cartesia credit-burn
+incident: Cartesia bills
 by seconds of *generated* audio, and `preemptive_tts: True` re-synthesizes on every not-yet-final
 STT transcript revision, discarding-but-still-paying-for whatever gets cancelled -- worst case up
 to the SDK's `max_retries` (default 3) discarded syntheses plus the one real one per turn. Since

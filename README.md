@@ -41,4 +41,9 @@ service locally — never commit `.env`.
 - [`docs/SPEC.md`](docs/SPEC.md) — intent: requirements and constraints
 - [`docs/DESIGN.md`](docs/DESIGN.md) — pinned architecture and contracts
 - [`docs/TASKS.md`](docs/TASKS.md) — human-readable task graph and merge order
+- [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — architecture as built, stack
+  rationale, and an honest known-limits section (including the R1 latency
+  miss)
+- [`docs/SUBMISSION.md`](docs/SUBMISSION.md) — submission checklist and
+  current status
 - [`CLAUDE.md`](CLAUDE.md) — build execution protocol
