@@ -60,11 +60,16 @@ describe('App: passive mode toggle', () => {
   // usePassiveWakeSession.ts discarded the rejection, so the box stayed
   // checked and nothing explained why nothing was listening.
 
-  it("disables the toggle and explains why when no Porcupine access key is configured (the real, un-overridden factory)", () => {
+  it("disables the toggle and explains why when this environment can't run the wake engine (the real, un-overridden factory)", () => {
     // No `wake` prop here on purpose -- this exercises the real
-    // wake/createWakeDetector.ts factory, not a test double. There is no
-    // VITE_PORCUPINE_ACCESS_KEY in this checkout (see createWakeDetector.ts's
-    // header), so this is the exact path a deployed build without one hits.
+    // wake/createWakeDetector.ts factory, not a test double. Porcupine (and
+    // its VITE_PORCUPINE_ACCESS_KEY gate) was replaced by the keyless
+    // openWakeWord engine -- Porcupine is blocked behind commercial
+    // licensing Hank cannot obtain before submission -- so
+    // isWakeDetectorConfigured() now checks WebAssembly + getUserMedia
+    // support instead of any env var. jsdom (this test's environment) has
+    // no navigator.mediaDevices, so that check is honestly false here too,
+    // same as a real browser lacking those primitives would see.
     const session = createFakeSession()
     const tokenFn = fakeFetchToken({ token: 'tok', url: 'wss://jarvis.test/rtc' })
 
@@ -77,8 +82,8 @@ describe('App: passive mode toggle', () => {
     expect(toggle).not.toBeChecked()
 
     const note = screen.getByTestId('passive-unavailable')
-    expect(note).toHaveTextContent(/VITE_PORCUPINE_ACCESS_KEY/)
-    expect(note).toHaveTextContent(/console\.picovoice\.ai/)
+    expect(note).toHaveTextContent(/WebAssembly/)
+    expect(note).toHaveTextContent(/microphone access/)
     // `disabled` is the actual contract a real browser enforces (unlike
     // jsdom's fireEvent, which -- unrealistically -- still fires a click
     // on a disabled input, so simulating "the user can't click this" isn't

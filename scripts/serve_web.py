@@ -22,11 +22,25 @@ import os
 from pathlib import Path
 
 from fastapi import Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from jarvis.server.app import app
 
 logger = logging.getLogger("jarvis.serve_web")
+
+# Compress static responses. This server sent everything uncompressed --
+# every byte of JS and wasm went over the wire raw. Measured on the current
+# build: the ONNX Runtime wasm binary is 13,479,978 bytes raw and 3,435,831
+# gzipped, so this is roughly a 10 MB saving on the single largest asset,
+# and it helps the pre-existing bundles too (the livekit chunk is 490 KB
+# raw). Nothing about the app changes; the browser negotiates it via
+# Accept-Encoding and falls back to identity if it cannot.
+#
+# minimum_size skips tiny payloads, where the compression overhead exceeds
+# the saving. JSON API responses are small and mostly below it, so this is
+# effectively a static-asset optimisation -- which is the intent.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 _DEFAULT_DIST = "/app/web"
 

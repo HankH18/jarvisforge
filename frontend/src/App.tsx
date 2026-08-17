@@ -12,7 +12,7 @@ import { SignInPanel } from './auth/SignInPanel'
 import './App.css'
 
 export interface AppWakeOptions {
-  /** default: the real Porcupine-backed factory, wake/createWakeDetector */
+  /** default: the real openWakeWord-backed factory, wake/createWakeDetector */
   createDetector?: () => Promise<WakeDetector>
 }
 
@@ -71,11 +71,13 @@ export default function App(props?: {
   // failure message never outlives the state that caused it.
   const [passiveError, setPassiveError] = useState<string | null>(null)
 
-  // Vite inlines VITE_-prefixed vars at BUILD time (wake/createWakeDetector.ts),
-  // so whether passive mode can work at all is a fixed fact about this
-  // bundle, knowable up front -- no need to let a user tick the box and
-  // find out it fails. A test-injected detector (wake.createDetector) is
-  // always treated as available; it's standing in for a working one.
+  // isWakeDetectorConfigured() (wake/createWakeDetector.ts) is a
+  // synchronous capability check -- WebAssembly + getUserMedia support --
+  // fixed for the lifetime of this loaded page, so whether passive mode
+  // can possibly work is knowable up front, no need to let a user tick the
+  // box and find out it fails. A test-injected detector
+  // (wake.createDetector) is always treated as available; it's standing
+  // in for a working one.
   const wakeAvailable = props?.wake?.createDetector !== undefined || isWakeDetectorConfigured()
 
   const createDetector = props?.wake?.createDetector ?? createWakeDetector()
@@ -180,9 +182,8 @@ export default function App(props?: {
         </label>
         {!wakeAvailable && (
           <p className="app__passive-note" data-testid="passive-unavailable">
-            Passive listening is unavailable in this build — no Porcupine access key was
-            configured at build time. Set VITE_PORCUPINE_ACCESS_KEY (get one from
-            https://console.picovoice.ai/) and rebuild to enable it.
+            Passive listening is unavailable in this browser — it needs WebAssembly and
+            microphone access support, which weren&apos;t both detected here.
           </p>
         )}
         {passiveError && (
