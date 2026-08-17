@@ -21,13 +21,16 @@
 // model files together can prove that; see the final report for what
 // would be needed to close that gap and why it wasn't done here.
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createOpenWakeWordDetectorWithDeps,
   getWakeDiagnosticsSnapshot,
   HOP_SAMPLES,
   isWakeDiagnosticsEnabled,
+  loadRealSessions,
+  SAMPLE_RATE,
   SAMPLES_NEEDED,
+  startRealCapture,
   subscribeWakeDiagnostics,
   type AudioCapture,
   type OpenWakeWordDeps,
@@ -36,6 +39,60 @@ import {
   type OrtTensorLike,
   type WakeDiagnosticsSnapshot,
 } from './openWakeWordDetector'
+import * as ortWasmModule from 'onnxruntime-web/wasm'
+
+// Stubs 'onnxruntime-web/wasm' -- the real WASM runtime is far too heavy
+// (and not meaningfully faster to trust) for a unit test; this fakes the
+// ONNX RUNTIME LIBRARY itself, not our own logic, same rationale as the
+// browser-API fakes below. Intercepts both the static import a test file
+// might use and loadRealSessions' own `import('onnxruntime-web/wasm')`
+// (vi.mock hoists above all imports, static or dynamic, regardless of
+// where in this file it's written).
+vi.mock('onnxruntime-web/wasm', () => {
+  class FakeInferenceSession {
+    inputNames: string[]
+    outputNames: string[]
+    private readonly modelPath: string
+    constructor(modelPath: string) {
+      this.modelPath = modelPath
+      this.inputNames = [`${modelPath}#in`]
+      this.outputNames = [`${modelPath}#out`]
+    }
+    async run(): Promise<Record<string, { data: Float32Array; dims: number[] }>> {
+      return { [`${this.modelPath}#out`]: { data: new Float32Array([7]), dims: [1] } }
+    }
+  }
+  const create = vi.fn(async (modelPath: string) => new FakeInferenceSession(modelPath))
+
+  class FakeTensor {
+    type: string
+    data: unknown
+    dims: unknown
+    constructor(type: string, data: unknown, dims: unknown) {
+      this.type = type
+      this.data = data
+      this.dims = dims
+    }
+  }
+
+  return {
+    InferenceSession: { create },
+    Tensor: FakeTensor,
+    env: { wasm: { numThreads: 0 } },
+  }
+})
+
+/** Narrow, hand-typed view onto the stubbed 'onnxruntime-web/wasm' module
+ * above -- avoids fighting the real package's full (overloaded)
+ * InferenceSession.create/Tensor typings for what is, at runtime, the fake
+ * from the vi.mock factory above. Same rationale as this file's own
+ * OrtSessionLike/OrtTensorLike: a minimal structural type is enough to
+ * drive and inspect the fake. */
+const ortWasm = ortWasmModule as unknown as {
+  InferenceSession: { create: ReturnType<typeof vi.fn> }
+  Tensor: new (type: string, data: unknown, dims: unknown) => { type: string; data: unknown; dims: unknown }
+  env: { wasm: { numThreads: number } }
+}
 
 /** Builds fake melspectrogram/embedding sessions that compute plausible
  * output shapes from their real input shapes (using the exact same
@@ -648,5 +705,350 @@ describe('createOpenWakeWordDetectorWithDeps: diagnostics', () => {
 
     logSpy.mockRestore()
     await detector.stop()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// startRealCapture -- the actual browser I/O layer (getUserMedia,
+// AudioContext, ScriptProcessorNode, the MediaStreamTrack 'ended' listener).
+// Every test above this point drives createOpenWakeWordDetectorWithDeps
+// through the injected `Deps` interface and never calls startRealCapture at
+// all -- makeFakeCapture's `startCapture` stands in for it completely, so
+// none of the tests above can prove startRealCapture's own wiring is
+// correct. Concretely: replacing startRealCapture's
+// `const handleTrackEnded = () => onCaptureLost()` with a no-op removes the
+// entire mid-session mic-loss feature, and every test above still passes.
+//
+// These tests fake the BROWSER (getUserMedia, AudioContext,
+// ScriptProcessorNode, MediaStreamTrack) rather than our own logic, and
+// call startRealCapture directly -- same house pattern as
+// src/test/setup.ts's MemoryStorage polyfill for window.localStorage: a
+// small, real stand-in for what jsdom doesn't implement (jsdom has no
+// AudioContext, no MediaStreamTrack, and no navigator.mediaDevices at all --
+// confirmed directly, all three are `undefined` in this test environment),
+// not a mock of anything this project owns.
+describe('startRealCapture (real browser I/O, faked)', () => {
+  /** Minimal fake of a browser MediaStreamTrack. Extends the real (jsdom-
+   * provided) EventTarget so addEventListener('ended', ...) /
+   * removeEventListener / dispatchEvent behave exactly like the real thing
+   * startRealCapture wires up to. `dispatchEndedOnStop` lets one test below
+   * simulate a hypothetical browser that -- unlike the current spec, which
+   * says a script-initiated stop() does NOT itself fire `ended` -- fires
+   * `ended` as a side effect of stop() anyway; that's the one scenario the
+   * removeEventListener-before-stop ordering in close() defends against
+   * (see its comment in openWakeWordDetector.ts). */
+  class FakeMediaStreamTrack extends EventTarget {
+    stopCalls = 0
+    private readonly dispatchEndedOnStop: boolean
+
+    constructor(dispatchEndedOnStop = false) {
+      super()
+      this.dispatchEndedOnStop = dispatchEndedOnStop
+    }
+
+    stop(): void {
+      this.stopCalls += 1
+      if (this.dispatchEndedOnStop) this.dispatchEvent(new Event('ended'))
+    }
+  }
+
+  class FakeAudioNode {
+    disconnectCalls = 0
+    connect(dest: unknown): unknown {
+      return dest
+    }
+    disconnect(): void {
+      this.disconnectCalls += 1
+    }
+  }
+
+  type FakeAudioProcessingEvent = { inputBuffer: { getChannelData(channel: number): Float32Array } }
+
+  class FakeScriptProcessorNode extends FakeAudioNode {
+    onaudioprocess: ((event: FakeAudioProcessingEvent) => void) | null = null
+    /** Simulates the browser invoking this node's callback with a real
+     * audio buffer -- the only way startRealCapture's onaudioprocess wiring
+     * can be exercised without a real AudioContext. */
+    triggerAudioProcess(channelData: Float32Array): void {
+      this.onaudioprocess?.({ inputBuffer: { getChannelData: () => channelData } })
+    }
+  }
+
+  class FakeGainNode extends FakeAudioNode {
+    gain = { value: 1 }
+  }
+
+  interface FakeAudioContextInstance {
+    sampleRate: number
+    closeCalls: number
+    requestedOptions: { sampleRate?: number } | undefined
+  }
+
+  /** Every stub this describe block installs is torn down here, regardless
+   * of whether the test that installed it passed or threw -- otherwise a
+   * failing assertion could leave a fake AudioContext/navigator.mediaDevices
+   * (or a pushed-state URL search string, which isWakeDiagnosticsEnabled
+   * reads live) bleeding into a later, unrelated test. */
+  let pendingRestores: Array<() => void> = []
+  afterEach(() => {
+    while (pendingRestores.length > 0) pendingRestores.pop()!()
+    window.history.pushState({}, '', '/')
+  })
+
+  /** Installs fake getUserMedia + AudioContext onto the real globals (jsdom
+   * has neither), wired the way a real browser would be, and returns
+   * handles the test can inspect/drive. `actualSampleRate` lets a test
+   * simulate a browser that grants a different rate than requested (see
+   * startRealCapture's sampleRate-mismatch diagnostics); `dispatchEndedOnStop`
+   * is forwarded to FakeMediaStreamTrack above. */
+  function installFakeBrowserAudio(
+    options: { actualSampleRate?: number; dispatchEndedOnStop?: boolean } = {},
+  ): {
+    track: FakeMediaStreamTrack
+    getProcessor: () => FakeScriptProcessorNode | null
+    getSource: () => FakeAudioNode | null
+    getSilence: () => FakeGainNode | null
+    getAudioContext: () => FakeAudioContextInstance | null
+  } {
+    const track = new FakeMediaStreamTrack(options.dispatchEndedOnStop ?? false)
+    const stream = { getTracks: () => [track] }
+
+    const originalMediaDevicesDescriptor = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices')
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: async () => stream,
+      },
+    })
+
+    let processor: FakeScriptProcessorNode | null = null
+    let source: FakeAudioNode | null = null
+    let silence: FakeGainNode | null = null
+    let audioContextInstance: FakeAudioContextInstance | null = null
+
+    // A plain constructor function rather than a class: it explicitly
+    // returns an object literal, which (per ordinary `new` semantics) is
+    // what `new AudioContext(...)` in startRealCapture then receives --
+    // sidesteps ever needing to alias `this` to register the created
+    // instance for the test to inspect below.
+    function FakeAudioContext(ctorOptions?: { sampleRate?: number }): FakeAudioContextInstance & {
+      destination: FakeAudioNode
+      createMediaStreamSource(stream: unknown): FakeAudioNode
+      createScriptProcessor(bufferSize: number, numIn: number, numOut: number): FakeScriptProcessorNode
+      createGain(): FakeGainNode
+      close(): Promise<void>
+    } {
+      const instance = {
+        sampleRate: options.actualSampleRate ?? ctorOptions?.sampleRate ?? SAMPLE_RATE,
+        closeCalls: 0,
+        requestedOptions: ctorOptions,
+        destination: new FakeAudioNode(),
+        createMediaStreamSource(_stream: unknown): FakeAudioNode {
+          source = new FakeAudioNode()
+          return source
+        },
+        createScriptProcessor(_bufferSize: number, _numIn: number, _numOut: number): FakeScriptProcessorNode {
+          processor = new FakeScriptProcessorNode()
+          return processor
+        },
+        createGain(): FakeGainNode {
+          silence = new FakeGainNode()
+          return silence
+        },
+        async close(): Promise<void> {
+          instance.closeCalls += 1
+        },
+      }
+      audioContextInstance = instance
+      return instance
+    }
+
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+
+    pendingRestores.push(() => {
+      if (originalMediaDevicesDescriptor) {
+        Object.defineProperty(navigator, 'mediaDevices', originalMediaDevicesDescriptor)
+      } else {
+        Reflect.deleteProperty(navigator, 'mediaDevices')
+      }
+      vi.unstubAllGlobals()
+    })
+
+    return {
+      track,
+      getProcessor: () => processor,
+      getSource: () => source,
+      getSilence: () => silence,
+      getAudioContext: () => audioContextInstance,
+    }
+  }
+
+  // Item 1 -- the headline regression this whole block exists to catch: a
+  // MediaStreamTrack ending mid-session (mic permission revoked, device
+  // unplugged) must reach onCaptureLost. MUST FAIL if
+  // `const handleTrackEnded = () => onCaptureLost()` is ever gutted to a
+  // no-op -- see this file's final report for confirmation that it does.
+  it("delivers the MediaStreamTrack's 'ended' event to onCaptureLost", async () => {
+    const { track } = installFakeBrowserAudio()
+    let lostCalls = 0
+
+    await startRealCapture(
+      () => {},
+      () => {
+        lostCalls += 1
+      },
+    )
+
+    track.dispatchEvent(new Event('ended'))
+
+    expect(lostCalls).toBe(1)
+  })
+
+  // Item 2 -- close() must release everything it owns: the AudioContext,
+  // the ScriptProcessorNode's connections, and the microphone track.
+  it('close() closes the AudioContext, disconnects the audio graph, and stops the track', async () => {
+    const { track, getAudioContext, getProcessor, getSource, getSilence } = installFakeBrowserAudio()
+    const capture = await startRealCapture(() => {}, () => {})
+
+    expect(getAudioContext()?.closeCalls).toBe(0)
+    expect(track.stopCalls).toBe(0)
+
+    await capture.close()
+
+    expect(getAudioContext()?.closeCalls).toBe(1)
+    expect(getProcessor()?.disconnectCalls).toBe(1)
+    expect(getSource()?.disconnectCalls).toBe(1)
+    expect(getSilence()?.disconnectCalls).toBe(1)
+    expect(track.stopCalls).toBe(1)
+    // Also detached so a stray browser callback after close() can't fire.
+    expect(getProcessor()?.onaudioprocess).toBeNull()
+  })
+
+  // Item 3 -- close() must remove the 'ended' listener BEFORE stopping the
+  // track, so a deliberate close() can never be misreported as a capture
+  // loss. dispatchEndedOnStop simulates a (spec-noncompliant) browser that
+  // fires 'ended' as a side effect of track.stop() -- the one case where
+  // getting the order backwards would actually be observable.
+  it('close() removes the ended listener before stopping the track, so a deliberate stop cannot masquerade as a capture loss', async () => {
+    const { track } = installFakeBrowserAudio({ dispatchEndedOnStop: true })
+    let lostCalls = 0
+    const capture = await startRealCapture(
+      () => {},
+      () => {
+        lostCalls += 1
+      },
+    )
+
+    await capture.close()
+
+    expect(track.stopCalls).toBe(1) // the stop did happen...
+    expect(lostCalls).toBe(0) // ...but was never reported as a capture loss
+  })
+
+  // Item 4 -- audio arriving through the ScriptProcessorNode callback must
+  // reach onSamples unchanged: mono float32 in [-1, 1]. The ×32767
+  // int16-domain scaling happens later, in runDetectionPass -- deliberately
+  // NOT asserted here.
+  it('delivers ScriptProcessorNode audio to onSamples as mono float32 in [-1, 1], copied rather than aliased', async () => {
+    const { getProcessor } = installFakeBrowserAudio()
+    const received: Float32Array[] = []
+
+    await startRealCapture((samples) => {
+      received.push(samples)
+    }, () => {})
+
+    const channelData = new Float32Array([0.5, -0.3, 1, -1, 0.1])
+    getProcessor()?.triggerAudioProcess(channelData)
+
+    expect(received).toHaveLength(1)
+    const expectedSamples = [0.5, -0.3, 1, -1, 0.1]
+    expect(received[0]).toHaveLength(expectedSamples.length)
+    // Float32Array storage loses a little precision vs. the plain numbers
+    // above (e.g. -0.3 -> -0.30000001192092896) -- toBeCloseTo, not toEqual.
+    expectedSamples.forEach((expected, i) => expect(received[0][i]).toBeCloseTo(expected, 5))
+    for (const s of received[0]) expect(Math.abs(s)).toBeLessThanOrEqual(1) // still Web Audio's native domain
+
+    // A copy, not a live view onto the browser's reused buffer (see
+    // startRealCapture's own comment on this line): mutating the source
+    // after the callback must not retroactively change what was delivered.
+    channelData[0] = 999
+    expect(received[0][0]).toBe(0.5)
+  })
+
+  // Item 5 -- the requested rate must be exactly 16 kHz (what the whole
+  // model pipeline is calibrated on -- see SAMPLE_RATE), and a browser that
+  // silently grants a different rate must be reported, not ignored.
+  it('requests a 16 kHz AudioContext', async () => {
+    const { getAudioContext } = installFakeBrowserAudio()
+
+    await startRealCapture(() => {}, () => {})
+
+    expect(SAMPLE_RATE).toBe(16000)
+    expect(getAudioContext()?.requestedOptions?.sampleRate).toBe(SAMPLE_RATE)
+  })
+
+  it('logs a sample-rate mismatch (diagnostics on) when the browser grants a different rate than requested', async () => {
+    window.history.pushState({}, '', '/?debug=wake')
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    installFakeBrowserAudio({ actualSampleRate: 44100 })
+
+    await startRealCapture(() => {}, () => {})
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('MISMATCH'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(`requested=${SAMPLE_RATE}`))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('actual=44100'))
+
+    logSpy.mockRestore()
+  })
+
+  it('does not report a mismatch (diagnostics on) when the browser grants exactly the requested rate', async () => {
+    window.history.pushState({}, '', '/?debug=wake')
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    installFakeBrowserAudio({ actualSampleRate: SAMPLE_RATE })
+
+    await startRealCapture(() => {}, () => {})
+
+    const loggedMismatch = logSpy.mock.calls.some(
+      (call) => typeof call[0] === 'string' && call[0].includes('MISMATCH'),
+    )
+    expect(loggedMismatch).toBe(false)
+
+    logSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// loadRealSessions -- fetches and instantiates the three real ONNX
+// sessions. Like startRealCapture above, nothing in this file's other
+// describe blocks ever calls it: createOpenWakeWordDetectorWithDeps only
+// ever sees an injected `loadSessions`. Stubs the onnxruntime-web LIBRARY
+// (see the vi.mock at the top of this file), not our own logic.
+describe('loadRealSessions (stubbed onnxruntime-web)', () => {
+  it('loads the three vendored ONNX models by path, forces single-threaded WASM, and wraps sessions/tensors so the rest of this file can use them', async () => {
+    const sessions = await loadRealSessions()
+
+    // The exact three vendored model paths, in the melspec/embedding/wake
+    // order runDetectionPass expects (see this module's pipeline diagram).
+    expect(ortWasm.InferenceSession.create).toHaveBeenNthCalledWith(1, '/wake-models/melspectrogram.onnx')
+    expect(ortWasm.InferenceSession.create).toHaveBeenNthCalledWith(2, '/wake-models/embedding_model.onnx')
+    expect(ortWasm.InferenceSession.create).toHaveBeenNthCalledWith(3, '/wake-models/hey_jarvis_v0.1.onnx')
+
+    // Single-threaded WASM -- see this file's own comment on why (no
+    // COOP/COEP cross-origin isolation headers set for SharedArrayBuffer).
+    expect(ortWasm.env.wasm.numThreads).toBe(1)
+
+    // wrap() must pass inputNames/outputNames through from the real
+    // session untouched.
+    expect(sessions.melspec.inputNames).toEqual(['/wake-models/melspectrogram.onnx#in'])
+    expect(sessions.melspec.outputNames).toEqual(['/wake-models/melspectrogram.onnx#out'])
+
+    // makeTensor must build a real ort.Tensor, not some other shape.
+    const tensor = sessions.makeTensor(new Float32Array([1, 2, 3]), [1, 3])
+    expect(tensor).toBeInstanceOf(ortWasm.Tensor)
+
+    // wrap()'s run() must actually delegate to the real session's run(),
+    // not swallow or reshape its result.
+    const result = await sessions.melspec.run({ [sessions.melspec.inputNames[0]]: tensor })
+    expect(Array.from(result[sessions.melspec.outputNames[0]].data as ArrayLike<number>)).toEqual([7])
   })
 })

@@ -73,7 +73,10 @@
 
 import type { WakeDetector } from './wakeDetector'
 
-const SAMPLE_RATE = 16000
+// Exported so tests can assert the exact rate startRealCapture requests
+// from AudioContext without duplicating the literal (same rationale as
+// HOP_SAMPLES/SAMPLES_NEEDED below).
+export const SAMPLE_RATE = 16000
 /** 80 ms of audio -- openWakeWord's own recommended step size. A new
  * detection pass is attempted every time this many new samples arrive.
  * Exported (with the other shape constants below) so tests can feed
@@ -514,7 +517,11 @@ export function createOpenWakeWordDetectorWithDeps(
 
 let realOrtModulePromise: Promise<typeof import('onnxruntime-web/wasm')> | null = null
 
-async function loadRealSessions(): Promise<OpenWakeWordSessions> {
+// Exported (test-only seam, no behaviour change) so
+// openWakeWordDetector.test.ts can exercise this against a stubbed
+// 'onnxruntime-web/wasm' module rather than only through the injected
+// `Deps` indirection, which never calls this function at all.
+export async function loadRealSessions(): Promise<OpenWakeWordSessions> {
   if (!realOrtModulePromise) realOrtModulePromise = import('onnxruntime-web/wasm')
   const ort = await realOrtModulePromise
 
@@ -567,7 +574,13 @@ async function loadRealSessions(): Promise<OpenWakeWordSessions> {
   }
 }
 
-async function startRealCapture(
+// Exported (test-only seam, no behaviour change) so
+// openWakeWordDetector.test.ts can exercise this against faked browser
+// APIs (getUserMedia, AudioContext, ScriptProcessorNode,
+// MediaStreamTrack) rather than only through the injected `Deps`
+// indirection, which never calls this function at all -- see that test
+// file's "startRealCapture" describe block.
+export async function startRealCapture(
   onSamples: (samples: Float32Array) => void,
   onCaptureLost: () => void,
 ): Promise<AudioCapture> {
