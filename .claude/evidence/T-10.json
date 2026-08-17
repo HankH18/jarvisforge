@@ -1,0 +1,9 @@
+{
+ "ticket": "T-10",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "(cd backend && uv run pytest tests/multiuser -q) && bash scripts/load_smoke.sh 10",
+ "commit": "d1bb353b6576bcf7e55e1874f511ee88875ca733",
+ "fingerprint": "5acb55667d3c599fc20c25fc5ba8e4b11d3799e5b997a838633c404a2d1e4338",
+ "attempts": 0,
+ "ts": 1786949641
+}
