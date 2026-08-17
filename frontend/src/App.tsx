@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useJarvisSession, type UseJarvisSessionOptions } from './hooks/useJarvisSession'
 import { AgentStateIndicator } from './components/AgentStateIndicator'
 import { TranscriptView } from './components/TranscriptView'
@@ -6,10 +6,26 @@ import { Controls } from './components/Controls'
 import { usePassiveWakeSession } from './state/usePassiveWakeSession'
 import { createWakeDetector, isWakeDetectorConfigured } from './wake/createWakeDetector'
 import type { WakeDetector } from './wake/wakeDetector'
+import {
+  getWakeDiagnosticsSnapshot,
+  isWakeDiagnosticsEnabled,
+  subscribeWakeDiagnostics,
+  type WakeDiagnosticsSnapshot,
+} from './wake/openWakeWordDetector'
 import { useClerkAuth, type AuthState } from './auth/useClerkAuth'
 import { createAuthFetchToken } from './auth/authFetchToken'
 import { SignInPanel } from './auth/SignInPanel'
 import './App.css'
+
+/** `null` before the current listening session's first detection pass has
+ * completed; NaN is shown as-is (see wake/openWakeWordDetector.ts's
+ * diagnostics section for why it's deliberately not hidden -- it's one of
+ * the failure signatures this readout exists to surface). */
+function formatWakeDiagnosticValue(value: number | null): string {
+  if (value === null) return 'n/a'
+  if (Number.isNaN(value)) return 'NaN'
+  return value.toFixed(3)
+}
 
 export interface AppWakeOptions {
   /** default: the real openWakeWord-backed factory, wake/createWakeDetector */
@@ -70,6 +86,25 @@ export default function App(props?: {
   // below). Cleared on every subsequent toggle interaction so a stale
   // failure message never outlives the state that caused it.
   const [passiveError, setPassiveError] = useState<string | null>(null)
+
+  // Wake-detector diagnostics (opt-in observability, not a feature): a
+  // deployed build once loaded every wake model successfully but never
+  // fired onWake, with nothing client-side to say why. Gated by a query
+  // param, not a build flag, so it can be toggled on an already-deployed
+  // build without a rebuild -- see wake/openWakeWordDetector.ts's
+  // diagnostics section for isWakeDiagnosticsEnabled's exact rule
+  // (?debug=wake or ?debug=1). Read once per mount: this app never
+  // navigates, so the query string is fixed for the page's lifetime.
+  const [wakeDiagnosticsEnabled] = useState(() =>
+    typeof window !== 'undefined' ? isWakeDiagnosticsEnabled(window.location.search) : false,
+  )
+  const [wakeDiagnostics, setWakeDiagnostics] = useState<WakeDiagnosticsSnapshot>(() =>
+    getWakeDiagnosticsSnapshot(),
+  )
+  useEffect(() => {
+    if (!wakeDiagnosticsEnabled) return
+    return subscribeWakeDiagnostics(setWakeDiagnostics)
+  }, [wakeDiagnosticsEnabled])
 
   // isWakeDetectorConfigured() (wake/createWakeDetector.ts) is a
   // synchronous capability check -- WebAssembly + getUserMedia support --
@@ -194,6 +229,13 @@ export default function App(props?: {
         {passiveModeEnabled && (
           <p className="app__passive-state" data-testid="passive-state">
             {passiveState === 'passive' ? 'Listening for "hey Jarvis"…' : null}
+          </p>
+        )}
+        {wakeDiagnosticsEnabled && (
+          <p className="app__wake-debug" data-testid="wake-debug">
+            wake score: {formatWakeDiagnosticValue(wakeDiagnostics.score)} · max:{' '}
+            {formatWakeDiagnosticValue(wakeDiagnostics.max)}
+            {wakeDiagnostics.error && ` · last error: ${wakeDiagnostics.error}`}
           </p>
         )}
 

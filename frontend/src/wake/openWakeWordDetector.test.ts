@@ -21,16 +21,20 @@
 // model files together can prove that; see the final report for what
 // would be needed to close that gap and why it wasn't done here.
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createOpenWakeWordDetectorWithDeps,
+  getWakeDiagnosticsSnapshot,
   HOP_SAMPLES,
+  isWakeDiagnosticsEnabled,
   SAMPLES_NEEDED,
+  subscribeWakeDiagnostics,
   type AudioCapture,
   type OpenWakeWordDeps,
   type OpenWakeWordSessions,
   type OrtSessionLike,
   type OrtTensorLike,
+  type WakeDiagnosticsSnapshot,
 } from './openWakeWordDetector'
 
 /** Builds fake melspectrogram/embedding sessions that compute plausible
@@ -48,12 +52,14 @@ function makeFakeSessions(wakeScore: () => number) {
   let embeddingCalls = 0
   let wakeCalls = 0
   let lastWakeFeedDims: readonly number[] | null = null
+  let lastMelspecFeedData: ArrayLike<number> | null = null
 
   const melspec: OrtSessionLike = {
     inputNames: ['input'],
     outputNames: ['output'],
     async run(feeds): Promise<Record<string, OrtTensorLike>> {
       melspecCalls += 1
+      lastMelspecFeedData = feeds.input.data
       const samples = feeds.input.dims[1]
       const frames = Math.floor(samples / 160) - 3
       return { output: { data: new Float32Array(frames * 32), dims: [1, 1, frames, 32] } }
@@ -91,6 +97,7 @@ function makeFakeSessions(wakeScore: () => number) {
     sessions,
     getCalls: () => ({ melspecCalls, embeddingCalls, wakeCalls }),
     getLastWakeFeedDims: () => lastWakeFeedDims,
+    getLastMelspecFeedData: () => lastMelspecFeedData,
   }
 }
 
@@ -155,6 +162,52 @@ describe('createOpenWakeWordDetectorWithDeps', () => {
     // batched as [1, 16, 96] -- verified against the real hey_jarvis_v0.1.onnx
     // input shape (see module header).
     expect(getLastWakeFeedDims()).toEqual([1, 16, 96])
+  })
+
+  it('scales raw PCM into openWakeWord\'s int16-scale amplitude domain before it reaches melspectrogram.onnx', async () => {
+    // Pins the WEB_AUDIO_TO_INT16_SCALE conversion in openWakeWordDetector.ts
+    // (see that constant's header comment for the upstream evidence this is
+    // based on). Web Audio hands this file float32 samples normalized to
+    // [-1, 1]; openWakeWord's melspectrogram.onnx expects int16-scale
+    // magnitudes (roughly [-32768, 32767]) as float32. This must FAIL if
+    // that ×32767 multiply is ever removed or its constant changed --
+    // checking only that "a tensor was passed" (as the existing
+    // [1, 16, 96] dims test does for the wake session) would not catch a
+    // regression back to feeding the model near-silence.
+    const { sessions, getLastMelspecFeedData } = makeFakeSessions(() => 0)
+    const { startCapture, feed } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps({ loadSessions: async () => sessions, startCapture })
+
+    await detector.start(() => {})
+
+    const raw = new Float32Array(SAMPLES_NEEDED)
+    raw[0] = 1
+    raw[1] = -1
+    raw[2] = 0.5
+    // Browsers can hand back samples very slightly outside [-1, 1] (float
+    // rounding in the audio pipeline) -- these must clamp to ±1 before
+    // scaling, not scale directly (which would overflow int16-scale range
+    // and distort).
+    raw[3] = 1.0005
+    raw[4] = -1.0007
+
+    feed(raw)
+    await flush()
+
+    const data = getLastMelspecFeedData()
+    expect(data).not.toBeNull()
+    const fed = data as ArrayLike<number>
+
+    expect(fed[0]).toBeCloseTo(Math.fround(1 * 32767), 5)
+    expect(fed[1]).toBeCloseTo(Math.fround(-1 * 32767), 5)
+    expect(fed[2]).toBeCloseTo(Math.fround(0.5 * 32767), 5)
+    expect(fed[3]).toBeCloseTo(Math.fround(1 * 32767), 5) // clamped, then scaled
+    expect(fed[4]).toBeCloseTo(Math.fround(-1 * 32767), 5) // clamped, then scaled
+
+    // Guards against a regression that silently drops the multiply
+    // entirely (the unscaled Web Audio value at index 0 would be 1, not
+    // ~32767).
+    expect(Math.abs(fed[0])).toBeGreaterThan(1000)
   })
 
   it('does not invoke onWake when the score stays below WAKE_THRESHOLD', async () => {
@@ -248,5 +301,219 @@ describe('createOpenWakeWordDetectorWithDeps', () => {
     })
 
     await expect(detector.start(() => {})).rejects.toThrow(/mic permission denied/)
+  })
+})
+
+// Diagnostics (opt-in observability -- see this module's diagnostics
+// section for why it exists: a deployed build loaded every model but never
+// fired onWake, with nothing client-side able to say why). The central
+// claim these tests exist to prove is the hard requirement this shipped
+// under: detection behaviour (onWake firing, or not) is identical whether
+// diagnostics is on or off. Everything else here (the score/max/error
+// published to subscribeWakeDiagnostics, the console output, the query-
+// param gate) is the actual observability feature, tested for its own
+// sake too.
+describe('createOpenWakeWordDetectorWithDeps: diagnostics', () => {
+  it('isWakeDiagnosticsEnabled: only ?debug=wake or ?debug=1 turn it on', () => {
+    expect(isWakeDiagnosticsEnabled('')).toBe(false)
+    expect(isWakeDiagnosticsEnabled('?foo=bar')).toBe(false)
+    expect(isWakeDiagnosticsEnabled('?debug=verbose')).toBe(false)
+    expect(isWakeDiagnosticsEnabled('?debug=wake')).toBe(true)
+    expect(isWakeDiagnosticsEnabled('?debug=1')).toBe(true)
+    expect(isWakeDiagnosticsEnabled('?other=1&debug=wake')).toBe(true)
+  })
+
+  it('does not alter onWake behaviour: the same score sequence fires identically whether diagnostics is on or off', async () => {
+    for (const diagnosticsEnabled of [false, true]) {
+      const { sessions } = makeFakeSessions(() => 0.95)
+      const { startCapture, feed } = makeFakeCapture()
+      const detector = createOpenWakeWordDetectorWithDeps(
+        { loadSessions: async () => sessions, startCapture },
+        diagnosticsEnabled,
+      )
+
+      let wakeCount = 0
+      await detector.start(() => {
+        wakeCount += 1
+      })
+
+      feed(new Float32Array(SAMPLES_NEEDED))
+      await flush()
+      expect(wakeCount).toBe(1)
+
+      // Still within COOLDOWN_MS -- must not fire again, on or off.
+      feed(new Float32Array(HOP_SAMPLES))
+      await flush()
+      expect(wakeCount).toBe(1)
+
+      await detector.stop()
+    }
+  })
+
+  it('does not alter onWake behaviour for a below-threshold score either, on or off', async () => {
+    for (const diagnosticsEnabled of [false, true]) {
+      const { sessions } = makeFakeSessions(() => 0.1)
+      const { startCapture, feed } = makeFakeCapture()
+      const detector = createOpenWakeWordDetectorWithDeps(
+        { loadSessions: async () => sessions, startCapture },
+        diagnosticsEnabled,
+      )
+
+      let wakeCount = 0
+      await detector.start(() => {
+        wakeCount += 1
+      })
+
+      feed(new Float32Array(SAMPLES_NEEDED))
+      await flush()
+      expect(wakeCount).toBe(0)
+
+      await detector.stop()
+    }
+  })
+
+  it('when enabled, publishes the live score and a NaN-safe running max to subscribeWakeDiagnostics', async () => {
+    let score = 0.2
+    const { sessions } = makeFakeSessions(() => score)
+    const { startCapture, feed } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps(
+      { loadSessions: async () => sessions, startCapture },
+      true,
+    )
+
+    const snapshots: WakeDiagnosticsSnapshot[] = []
+    const unsubscribe = subscribeWakeDiagnostics((s) => snapshots.push(s))
+
+    await detector.start(() => {})
+    feed(new Float32Array(SAMPLES_NEEDED))
+    await flush()
+
+    score = 0.35 // a new peak
+    feed(new Float32Array(HOP_SAMPLES))
+    await flush()
+
+    score = NaN // e.g. a garbage/degenerate model output
+    feed(new Float32Array(HOP_SAMPLES))
+    await flush()
+
+    unsubscribe()
+
+    // The raw score is shown as NaN, not hidden -- that's a real failure
+    // signature this exists to surface.
+    expect(getWakeDiagnosticsSnapshot().score).toBeNaN()
+    // But the running max ignores the NaN reading and stays at the
+    // highest real score seen (0.35) rather than being permanently
+    // pinned at NaN by it.
+    expect(getWakeDiagnosticsSnapshot().max).toBeCloseTo(0.35)
+    expect(snapshots.some((s) => s.score === 0.2 && s.max === 0.2)).toBe(true)
+    expect(snapshots.some((s) => s.score === 0.35 && s.max === 0.35)).toBe(true)
+
+    await detector.stop()
+  })
+
+  it('when disabled, never publishes to subscribeWakeDiagnostics', async () => {
+    const { sessions } = makeFakeSessions(() => 0.4)
+    const { startCapture, feed } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps(
+      { loadSessions: async () => sessions, startCapture },
+      false, // explicit, though this also matches the default
+    )
+
+    const snapshots: WakeDiagnosticsSnapshot[] = []
+    const unsubscribe = subscribeWakeDiagnostics((s) => snapshots.push(s))
+
+    await detector.start(() => {})
+    feed(new Float32Array(SAMPLES_NEEDED))
+    await flush()
+
+    unsubscribe()
+    expect(snapshots).toEqual([])
+
+    await detector.stop()
+  })
+
+  it('logs an inference-pass error to the console unconditionally -- on or off -- so it can never be silently swallowed', async () => {
+    for (const diagnosticsEnabled of [false, true]) {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const throwingRun = async (): Promise<Record<string, OrtTensorLike>> => {
+        throw new Error('onnx runtime boom')
+      }
+      const failingSessions: OpenWakeWordSessions = {
+        melspec: { inputNames: ['input'], outputNames: ['output'], run: throwingRun },
+        embedding: { inputNames: ['x'], outputNames: ['y'], run: throwingRun },
+        wake: { inputNames: ['x'], outputNames: ['y'], run: throwingRun },
+        makeTensor: (data, dims) => ({ data, dims }),
+      }
+      const { startCapture, feed } = makeFakeCapture()
+      const detector = createOpenWakeWordDetectorWithDeps(
+        { loadSessions: async () => failingSessions, startCapture },
+        diagnosticsEnabled,
+      )
+
+      await detector.start(() => {})
+      feed(new Float32Array(SAMPLES_NEEDED))
+      await flush()
+
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      expect(errorSpy.mock.calls[0][0]).toBe('[wake] openWakeWord detection pass failed')
+      expect(errorSpy.mock.calls[0][1]).toBeInstanceOf(Error)
+
+      errorSpy.mockRestore()
+      await detector.stop()
+    }
+  })
+
+  it('when enabled, an inference-pass error also surfaces in the published diagnostics snapshot', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const throwingRun = async (): Promise<Record<string, OrtTensorLike>> => {
+      throw new Error('onnx runtime boom')
+    }
+    const failingSessions: OpenWakeWordSessions = {
+      melspec: { inputNames: ['input'], outputNames: ['output'], run: throwingRun },
+      embedding: { inputNames: ['x'], outputNames: ['y'], run: throwingRun },
+      wake: { inputNames: ['x'], outputNames: ['y'], run: throwingRun },
+      makeTensor: (data, dims) => ({ data, dims }),
+    }
+    const { startCapture, feed } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps(
+      { loadSessions: async () => failingSessions, startCapture },
+      true,
+    )
+
+    await detector.start(() => {})
+    feed(new Float32Array(SAMPLES_NEEDED))
+    await flush()
+
+    expect(getWakeDiagnosticsSnapshot().error).toBe('onnx runtime boom')
+
+    errorSpy.mockRestore()
+    await detector.stop()
+  })
+
+  it('throttles the console score log to well under 12.5/s, while the running max still updates every pass', async () => {
+    let score = 0.1
+    const { sessions } = makeFakeSessions(() => score)
+    const { startCapture, feed } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps(
+      { loadSessions: async () => sessions, startCapture },
+      true,
+    )
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await detector.start(() => {})
+    feed(new Float32Array(SAMPLES_NEEDED)) // first pass
+    await flush()
+
+    score = 0.6 // second pass, well within 250ms of the first in test time
+    feed(new Float32Array(HOP_SAMPLES))
+    await flush()
+
+    // Only the first pass logged to the console -- the second was
+    // throttled -- but the running max was still updated immediately.
+    expect(logSpy).toHaveBeenCalledTimes(1)
+    expect(getWakeDiagnosticsSnapshot().max).toBeCloseTo(0.6)
+
+    logSpy.mockRestore()
+    await detector.stop()
   })
 })

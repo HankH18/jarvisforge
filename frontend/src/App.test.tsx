@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
 import { createFakeSession, fakeFetchToken } from "./test/fakes";
@@ -376,5 +376,65 @@ describe("App", () => {
         expect(order).toEqual(["session.disconnect", "auth.signOut"]);
       });
     });
+  });
+});
+
+// Wake-detector diagnostics (opt-in observability, gated by a URL query
+// param rather than a build flag -- see wake/openWakeWordDetector.ts's
+// diagnostics section). These only prove App.tsx's side of the gate: that
+// the readout appears/disappears with the URL, and reads its initial
+// values from wake/openWakeWordDetector.ts's diagnostics store. Live
+// score/max/error plumbing through a real detection pass is covered by
+// openWakeWordDetector.test.ts's own diagnostics tests -- FakeWakeDetector
+// (used everywhere else in this file) never touches that store.
+describe("App: wake diagnostics readout (?debug=wake / ?debug=1)", () => {
+  afterEach(() => {
+    // Every test above renders with a bare "/" URL; reset it after each
+    // test here so pushState doesn't leak a ?debug param into any test
+    // that happens to run after this block.
+    window.history.pushState({}, "", "/");
+  });
+
+  it("does not render the readout by default (no ?debug param)", () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-no-debug" }} />,
+    );
+
+    expect(screen.queryByTestId("wake-debug")).not.toBeInTheDocument();
+  });
+
+  it("renders the readout when ?debug=wake is present in the URL", () => {
+    window.history.pushState({}, "", "/?debug=wake");
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-debug-wake" }} />,
+    );
+
+    expect(screen.getByTestId("wake-debug")).toBeInTheDocument();
+    expect(screen.getByTestId("wake-debug")).toHaveTextContent(/score/i);
+  });
+
+  it("also turns on with ?debug=1, but not for an unrelated ?debug value", () => {
+    window.history.pushState({}, "", "/?debug=1");
+    const session1 = createFakeSession();
+    const tokenFn1 = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+    const { unmount } = render(
+      <App session={{ createSession: () => session1, fetchToken: tokenFn1, identity: "web-debug-1" }} />,
+    );
+    expect(screen.getByTestId("wake-debug")).toBeInTheDocument();
+    unmount();
+
+    window.history.pushState({}, "", "/?debug=verbose");
+    const session2 = createFakeSession();
+    const tokenFn2 = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+    render(
+      <App session={{ createSession: () => session2, fetchToken: tokenFn2, identity: "web-debug-2" }} />,
+    );
+    expect(screen.queryByTestId("wake-debug")).not.toBeInTheDocument();
   });
 });

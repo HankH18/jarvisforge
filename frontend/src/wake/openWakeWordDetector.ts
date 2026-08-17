@@ -24,7 +24,9 @@
 // vendored .onnx files by loading them with onnxruntime-web and inspecting
 // real input/output tensors, not assumed from documentation:
 //
-//   melspectrogram.onnx   [1, samples] float32
+//   melspectrogram.onnx   [1, samples] float32 (int16-scale amplitude, NOT
+//                          Web Audio's native [-1,1] -- see
+//                          WEB_AUDIO_TO_INT16_SCALE below for why)
 //                       -> [1, 1, frames, 32]   (frames = samples/160 - 3;
 //                          160-sample/10ms hop, 3 border frames the model
 //                          itself trims)
@@ -136,6 +138,139 @@ function squeeze(dims: readonly number[]): number[] {
   return dims.filter((d) => d !== 1)
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostics (opt-in, observability only). This exists because a deployed
+// build once loaded every model successfully -- server logs proved
+// ort-wasm-simd-threaded.wasm and all three /wake-models/*.onnx were
+// fetched -- yet no room join ever followed a spoken wake word, and this
+// file logged nothing that could tell apart three very different causes:
+// (a) audio never reaching inference at all, (b) inference running but
+// scoring under WAKE_THRESHOLD, or (c) inference throwing every cycle with
+// the error swallowed. Everything below is additive: it only *reads*
+// values the detection call site already has (the resolved score, a
+// thrown error) and publishes them somewhere a caller can look. Nothing
+// here ever feeds back into WAKE_THRESHOLD, COOLDOWN_MS, or onWake --
+// detection behaviour is identical whether this is enabled or not (see
+// openWakeWordDetector.test.ts's diagnostics-parity test).
+//
+// Gated by a URL query parameter, not a build flag, so it can be toggled
+// on an already-deployed build without a rebuild.
+
+/** `?debug=wake` or `?debug=1` in the page's query string turns diagnostics
+ * on; anything else (including no `debug` param at all) leaves it off.
+ * Exported so App.tsx's on-screen readout uses this exact gate rather than
+ * a second flag that could drift out of sync with the one below. A pure
+ * function of the search string, not a `window.location` read, so it stays
+ * testable without mocking global state -- createOpenWakeWordDetector()
+ * and startRealCapture() below are the only real call sites that read
+ * `window.location.search` itself. */
+export function isWakeDiagnosticsEnabled(search: string): boolean {
+  const debug = new URLSearchParams(search).get('debug')
+  return debug === 'wake' || debug === '1'
+}
+
+/** What the on-screen readout and the throttled console log both show.
+ * `score`/`max` are `null` only before the first detection pass of the
+ * current listening session has completed (the first ~2s while the
+ * trailing-audio buffer fills) -- not to be confused with a real score of
+ * 0. A `NaN` score is preserved as-is rather than coerced into something
+ * friendlier: that IS one of the failure signatures this exists to
+ * surface, so hiding it would defeat the point. `max` deliberately ignores
+ * NaN readings when updating (see the `.then` handler below) so one NaN
+ * frame can't permanently pin the running max at NaN and hide a real peak
+ * that follows it. */
+export interface WakeDiagnosticsSnapshot {
+  score: number | null
+  max: number | null
+  error: string | null
+}
+
+const INITIAL_WAKE_DIAGNOSTICS: WakeDiagnosticsSnapshot = { score: null, max: null, error: null }
+
+let wakeDiagnosticsSnapshot: WakeDiagnosticsSnapshot = INITIAL_WAKE_DIAGNOSTICS
+const wakeDiagnosticsListeners = new Set<(snapshot: WakeDiagnosticsSnapshot) => void>()
+
+/** The current snapshot, for a subscriber to seed its own state with
+ * before the first update arrives -- mirrors how usePassiveWakeSession.ts
+ * seeds its React state from controller.getState() before subscribing. */
+export function getWakeDiagnosticsSnapshot(): WakeDiagnosticsSnapshot {
+  return wakeDiagnosticsSnapshot
+}
+
+/** Notified after every diagnostics update. Not replayed on subscribe --
+ * same convention as passiveActiveMachine.ts's subscribe. Returns an
+ * unsubscribe function. */
+export function subscribeWakeDiagnostics(listener: (snapshot: WakeDiagnosticsSnapshot) => void): () => void {
+  wakeDiagnosticsListeners.add(listener)
+  return () => {
+    wakeDiagnosticsListeners.delete(listener)
+  }
+}
+
+function publishWakeDiagnostics(snapshot: WakeDiagnosticsSnapshot): void {
+  wakeDiagnosticsSnapshot = snapshot
+  for (const listener of Array.from(wakeDiagnosticsListeners)) listener(snapshot)
+}
+
+function formatWakeDiagnosticValue(value: number | null): string {
+  if (value === null) return 'n/a'
+  if (Number.isNaN(value)) return 'NaN'
+  return value.toFixed(3)
+}
+
+/** Minimum gap between throttled console lines. A detection pass runs
+ * roughly every 80ms (~12.5/s -- HOP_SAMPLES at SAMPLE_RATE); logging every
+ * one of those would bury the signal in noise (and, per the task this
+ * shipped for, still not show a peak that happened between two scrollback
+ * lines). Capping at ~4/s keeps it readable while every pass still updates
+ * the on-screen readout and the running max immediately, so a peak while
+ * speaking is visible even if the exact frame that produced it scrolled
+ * past in the console. */
+const DIAG_LOG_INTERVAL_MS = 250
+
+/** Web Audio's `AudioBuffer.getChannelData()` / `ScriptProcessorNode`
+ * samples (what fills `buffer` below -- see startRealCapture) are float32
+ * normalized to [-1, 1] per the Web Audio spec. openWakeWord's
+ * melspectrogram.onnx does NOT consume that domain: it expects raw
+ * 16-bit-PCM-scale values (roughly [-32768, 32767]) represented as
+ * float32, not [-1, 1] floats. Independently re-derived against the exact
+ * vendored release (v0.5.1 -- see frontend/public/wake-models/NOTICE.md),
+ * not assumed:
+ *   - openwakeword/utils.py's `AudioFeatures._get_melspectrogram` raises
+ *     `ValueError("Input data must be 16-bit integers (i.e., 16-bit PCM
+ *     audio). You provided {x.dtype} data.")` whenever the array it's
+ *     handed isn't `np.int16` -- only *after* that check does it cast to
+ *     float32 to feed the ONNX model, so the model's real input domain is
+ *     int16-scale magnitudes carried in a float32 array, not [-1, 1].
+ *   - openwakeword/model.py's `predict_clip()` documents its input as
+ *     "a 16-bit PCM, 16 khz, single-channel WAV file, or an 1D array
+ *     containing the same type of data", and loads WAV files via
+ *     `np.frombuffer(f.readframes(...), dtype=np.int16)`.
+ *   - utils.py's own `AudioFeatures.get_embedding_shape()` synthesizes
+ *     test audio the same way this file now does:
+ *     `(np.random.uniform(-1, 1, n) * 32767).astype(np.int16)` -- a
+ *     [-1, 1] float scaled by exactly 32767 before being treated as
+ *     int16-domain audio, confirming both the expected domain and the
+ *     scale factor upstream itself uses.
+ * Without this scaling, melspectrogram.onnx is fed audio ~32768x quieter
+ * than what it was calibrated on -- effectively silence -- regardless of
+ * what was said. This conversion belongs ONLY here, on the raw PCM going
+ * into melspectrogram.onnx: embedding_model.onnx and hey_jarvis_v0.1.onnx
+ * consume melspectrogram.onnx's *output*, already in whatever units that
+ * model emits, so rescaling anything past this point would be wrong (and
+ * would double-apply this correction).
+ *
+ * Multiplying by 32767, not 32768, to match upstream's own literal above;
+ * these values are never actually cast to an int16 typed array (the
+ * model's own float32 cast handles that), so 32767 vs. 32768 is a
+ * fraction-of-an-LSB difference either way, and matching upstream's exact
+ * constant is the more defensible choice when nothing else forces a pick.
+ * Clamped to [-1, 1] first because a browser's audio pipeline can hand
+ * back samples very slightly outside that range (float rounding) --
+ * without the clamp, those would scale past int16 range and distort;
+ * normal in-range samples pass through the clamp untouched. */
+const WEB_AUDIO_TO_INT16_SCALE = 32767
+
 /** Runs the melspectrogram -> embedding -> wake chain over the trailing
  * SAMPLES_NEEDED samples of `buffer`. Returns the wake score, or `null` if
  * there isn't enough audio buffered yet to run a full pass (only happens
@@ -145,7 +280,10 @@ async function runDetectionPass(
   buffer: number[],
 ): Promise<number | null> {
   if (buffer.length < SAMPLES_NEEDED) return null
-  const samples = Float32Array.from(buffer.slice(buffer.length - SAMPLES_NEEDED))
+  const samples = Float32Array.from(
+    buffer.slice(buffer.length - SAMPLES_NEEDED),
+    (s) => Math.max(-1, Math.min(1, s)) * WEB_AUDIO_TO_INT16_SCALE,
+  )
 
   const melInput = sessions.makeTensor(samples, [1, samples.length])
   const melFeeds = { [sessions.melspec.inputNames[0]]: melInput }
@@ -183,14 +321,30 @@ async function runDetectionPass(
 }
 
 /** The testable core: all real-world I/O (ONNX runtime, microphone) comes
- * in through `deps`. See createOpenWakeWordDetector() for the real thing. */
-export function createOpenWakeWordDetectorWithDeps(deps: OpenWakeWordDeps): WakeDetector {
+ * in through `deps`. See createOpenWakeWordDetector() for the real thing.
+ *
+ * `diagnosticsEnabled` (default off, backward compatible with every
+ * existing call site including this file's own tests) turns on the
+ * opt-in observability described in this file's diagnostics section
+ * above: a throttled console log of the live score/running-max, and
+ * publishing the same numbers to subscribeWakeDiagnostics() for an
+ * on-screen readout. It never changes anything the detection logic below
+ * reads or writes. */
+export function createOpenWakeWordDetectorWithDeps(
+  deps: OpenWakeWordDeps,
+  diagnosticsEnabled = false,
+): WakeDetector {
   let capture: AudioCapture | null = null
   let buffer: number[] = []
   let newSinceLastRun = 0
   let passInFlight = false
   let lastFireAt = 0
   let stopped = true
+  // Diagnostics-only state below -- read and written only inside the
+  // `if (diagnosticsEnabled ...)` blocks further down, never by the
+  // detection logic above them.
+  let diagMaxScore: number | null = null
+  let diagLastLogAt = 0
 
   return {
     async start(onWake: () => void): Promise<void> {
@@ -202,6 +356,11 @@ export function createOpenWakeWordDetectorWithDeps(deps: OpenWakeWordDeps): Wake
       newSinceLastRun = 0
       lastFireAt = 0
       stopped = false
+      // Running max is per listening session, not since the page loaded:
+      // reset it (and the on-screen readout) every time start() runs.
+      diagMaxScore = null
+      diagLastLogAt = 0
+      if (diagnosticsEnabled) publishWakeDiagnostics(INITIAL_WAKE_DIAGNOSTICS)
 
       capture = await deps.startCapture((samples) => {
         if (stopped) return
@@ -215,6 +374,23 @@ export function createOpenWakeWordDetectorWithDeps(deps: OpenWakeWordDeps): Wake
         passInFlight = true
         runDetectionPass(sessions, buffer)
           .then((score) => {
+            // Diagnostics only -- reads `score`/`stopped` but never writes
+            // anything the detection logic below (unchanged, same two
+            // lines as before this diagnostics feature existed) reads.
+            if (diagnosticsEnabled && !stopped && score !== null) {
+              if (!Number.isNaN(score)) {
+                diagMaxScore = diagMaxScore === null ? score : Math.max(diagMaxScore, score)
+              }
+              publishWakeDiagnostics({ score, max: diagMaxScore, error: null })
+              const now = Date.now()
+              if (now - diagLastLogAt >= DIAG_LOG_INTERVAL_MS) {
+                diagLastLogAt = now
+                console.log(
+                  `[wake] score=${formatWakeDiagnosticValue(score)} max=${formatWakeDiagnosticValue(diagMaxScore)}`,
+                )
+              }
+            }
+
             if (score === null || stopped) return
             const now = Date.now()
             if (score >= WAKE_THRESHOLD && now - lastFireAt >= COOLDOWN_MS) {
@@ -223,7 +399,21 @@ export function createOpenWakeWordDetectorWithDeps(deps: OpenWakeWordDeps): Wake
             }
           })
           .catch((err: unknown) => {
+            // Unconditional, regardless of diagnosticsEnabled -- an
+            // inference-pass error must never be silently swallowed. This
+            // line predates the diagnostics feature; it's why failure
+            // mode (c) ("inference throws and the error is swallowed")
+            // was never actually possible in this file, even before this
+            // change -- see the final report for the audit that confirmed
+            // that.
             console.error('[wake] openWakeWord detection pass failed', err)
+            if (diagnosticsEnabled && !stopped) {
+              publishWakeDiagnostics({
+                score: wakeDiagnosticsSnapshot.score,
+                max: diagMaxScore,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            }
           })
           .finally(() => {
             passInFlight = false
@@ -301,6 +491,19 @@ async function startRealCapture(onSamples: (samples: Float32Array) => void): Pro
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   })
   const audioContext = new AudioContext({ sampleRate: SAMPLE_RATE })
+  // Diagnostics only: reports what the browser actually did with the
+  // requested sampleRate above. Some browsers silently keep the hardware's
+  // native rate (commonly 44100/48000) instead of resampling to what was
+  // requested -- see this file's final report for why that specific
+  // mismatch was investigated (but deliberately not fixed) as part of this
+  // diagnostics change, and how to read this line if it ever fires.
+  if (isWakeDiagnosticsEnabled(window.location.search)) {
+    const actual = audioContext.sampleRate
+    console.log(
+      `[wake] AudioContext sampleRate requested=${SAMPLE_RATE} actual=${actual}` +
+        (actual !== SAMPLE_RATE ? ' -- MISMATCH: audio is not actually at 16 kHz, see final report' : ''),
+    )
+  }
   const source = audioContext.createMediaStreamSource(stream)
   // ScriptProcessorNode is deprecated but still implemented everywhere
   // that matters (Chrome, Firefox, Safari); chosen over AudioWorklet to
@@ -338,10 +541,18 @@ async function startRealCapture(onSamples: (samples: Float32Array) => void): Pro
 }
 
 /** Production factory: the real onnxruntime-web + getUserMedia
- * implementation. createWakeDetector.ts uses this as the default. */
+ * implementation. createWakeDetector.ts uses this as the default.
+ * Diagnostics are read from the page URL exactly once here, at the moment
+ * a real detector is constructed -- see isWakeDiagnosticsEnabled's header
+ * for why that's a plain query-string check rather than a build flag. */
 export function createOpenWakeWordDetector(): WakeDetector {
-  return createOpenWakeWordDetectorWithDeps({
-    loadSessions: loadRealSessions,
-    startCapture: startRealCapture,
-  })
+  const diagnosticsEnabled =
+    typeof window !== 'undefined' ? isWakeDiagnosticsEnabled(window.location.search) : false
+  return createOpenWakeWordDetectorWithDeps(
+    {
+      loadSessions: loadRealSessions,
+      startCapture: startRealCapture,
+    },
+    diagnosticsEnabled,
+  )
 }

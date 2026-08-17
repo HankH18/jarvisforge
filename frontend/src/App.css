@@ -74,6 +74,17 @@
   color: var(--text-dim);
 }
 
+/* Wake-word diagnostics readout -- opt-in via ?debug=wake / ?debug=1 (see
+   wake/openWakeWordDetector.ts's diagnostics section). Styled like
+   .app__passive-note (small, dim) rather than .app__error: it's a live
+   readout, not an alert. */
+.app__wake-debug {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 /* ---- Agent state indicator ----
    Four states, differentiated by shape + motion, never by colour alone --
    the visible label text is the primary, always-present differentiator.
