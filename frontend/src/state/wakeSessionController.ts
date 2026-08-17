@@ -37,6 +37,16 @@ export function createWakeSessionController(
   createDetector: () => Promise<WakeDetector>,
   endpoint: SessionEndpoint,
   room?: string | null,
+  /** Reports a detector's mid-session failure (WakeDetector's `onFailure`,
+   * see wakeDetector.ts) one layer up. Deliberately separate from the
+   * rejection of start()'s returned promise -- the initial "couldn't even
+   * begin listening" case, which callers already observe by awaiting
+   * start() -- since this can fire long after that promise resolved.
+   * usePassiveWakeSession.ts wires this to the exact same onStartError
+   * channel it already uses for that initial-failure case, so the two
+   * failure modes render identically in the UI without a second error
+   * channel. */
+  onDetectorFailure?: (message: string) => void,
 ): WakeSessionController {
   const machine = createPassiveActiveMachine('passive')
   let detector: WakeDetector | null = null
@@ -62,7 +72,32 @@ export function createWakeSessionController(
       return
     }
     detector = d
-    await d.start(() => machine.send({ type: 'WAKE' }))
+    await d.start(
+      () => machine.send({ type: 'WAKE' }),
+      (message) => {
+        // Ignore a failure reported by a detector this controller has
+        // already moved on from -- superseded by a later stop()/start()
+        // toggle, or by stopListening() already having run as part of a
+        // wake -- same staleness case the post-await check above guards
+        // against for createDetector(). `detector` (unlike `d`) always
+        // reflects whichever instance, if any, this controller currently
+        // considers live.
+        if (detector !== d) return
+        detector = null
+        // Deliberately not calling d.stop() again here: WakeDetector's
+        // contract (wakeDetector.ts) requires an implementation to have
+        // already released every resource it holds before ever calling
+        // onFailure, so there is nothing left to release. Just forget it
+        // and report up -- `started` is intentionally left as-is, exactly
+        // like the existing "createDetector()/start() rejected" path
+        // above never resets it either: whichever UI this reaches is
+        // expected to flip its own "enabled" flag off in response (see
+        // onDetectorFailure's doc comment), and that round-trip is what
+        // calls this controller's own stop() and clears `started` for
+        // real.
+        onDetectorFailure?.(message)
+      },
+    )
   }
 
   machine.subscribe((state) => {

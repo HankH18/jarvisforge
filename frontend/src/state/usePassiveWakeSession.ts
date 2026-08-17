@@ -49,6 +49,19 @@ export function usePassiveWakeSession(options: UsePassiveWakeSessionOptions): Pa
         leave: () => endpointRef.current.leave(),
       },
       room,
+      // A mid-session detector failure (mic permission revoked, device
+      // unplugged, ... -- see wakeDetector.ts's onFailure and
+      // openWakeWordDetector.ts's track-`ended` handling) reaches here
+      // long after the `enabled` effect's controller.start() below has
+      // already resolved successfully, so there is no rejected promise
+      // left for that effect to catch. Routed through the exact same
+      // onStartErrorRef used for a failed start() (via the ref, not
+      // `onStartError` directly, for the same reason endpointRef exists:
+      // this factory runs once, and must not close over a stale prop) so
+      // the two failure modes -- can't start vs. stopped working mid-
+      // session -- render identically in the UI instead of needing a
+      // second error channel.
+      (message) => onStartErrorRef.current?.(message),
     )
   }
   const controller = controllerRef.current

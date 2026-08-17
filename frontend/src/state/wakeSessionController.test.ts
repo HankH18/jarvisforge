@@ -137,6 +137,55 @@ describe('createWakeSessionController', () => {
     expect(created).toBe(1)
   })
 
+  it('a mid-session detector failure is reported through the onDetectorFailure callback', async () => {
+    const detector = new FakeWakeDetector()
+    const endpoint = fakeEndpoint()
+    const failures: string[] = []
+    const controller = createWakeSessionController(async () => detector, endpoint, null, (message) =>
+      failures.push(message),
+    )
+    await controller.start()
+
+    detector.failMidSession('mic permission revoked mid-session')
+    await flush()
+
+    expect(failures).toEqual(['mic permission revoked mid-session'])
+    // The real detector (wakeDetector.ts's contract) has already released
+    // its own resources before ever calling onFailure -- the controller
+    // must not call stop() on it again on top of that.
+    expect(detector.stopCalls).toBe(0)
+  })
+
+  it('a wake heard after the detector has already reported a mid-session failure is not treated as a wake', async () => {
+    const detector = new FakeWakeDetector()
+    const endpoint = fakeEndpoint()
+    const failures: string[] = []
+    const controller = createWakeSessionController(async () => detector, endpoint, null, (message) =>
+      failures.push(message),
+    )
+    await controller.start()
+
+    detector.failMidSession('mic lost')
+    await flush()
+    expect(failures).toEqual(['mic lost'])
+
+    detector.wake() // the fake is stopped (listening=false) by failMidSession: a no-op, mirroring a real detector
+    await flush()
+
+    expect(controller.getState()).toBe('passive')
+    expect(endpoint.joinCalls).toEqual([])
+  })
+
+  it('does not require an onDetectorFailure callback to be supplied', async () => {
+    const detector = new FakeWakeDetector()
+    const endpoint = fakeEndpoint()
+    const controller = createWakeSessionController(async () => detector, endpoint) // no 4th arg
+    await controller.start()
+
+    // Must not throw even though nothing is listening for the failure.
+    expect(() => detector.failMidSession('mic lost')).not.toThrow()
+  })
+
   it('subscribe() reports every state change', async () => {
     const detector = new FakeWakeDetector()
     const endpoint = fakeEndpoint()

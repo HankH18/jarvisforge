@@ -113,13 +113,19 @@ function makeFakeSessions(wakeScore: () => number, melspecValue: () => number = 
 }
 
 /** Fake microphone: lets a test push raw PCM samples on demand instead of
- * needing a real getUserMedia()/AudioContext. */
+ * needing a real getUserMedia()/AudioContext. `loseCapture()` simulates the
+ * `onCaptureLost` signal a real capture reports when its MediaStreamTrack
+ * fires `ended` mid-session (see startRealCapture in openWakeWordDetector.ts
+ * for what that maps to in a real browser) -- lets a test drive the fatal
+ * path without a real track or permission prompt. */
 function makeFakeCapture() {
   let onSamples: ((samples: Float32Array) => void) | null = null
+  let onCaptureLost: (() => void) | null = null
   let closeCalls = 0
 
-  const startCapture: OpenWakeWordDeps['startCapture'] = async (cb) => {
+  const startCapture: OpenWakeWordDeps['startCapture'] = async (cb, lostCb) => {
     onSamples = cb
+    onCaptureLost = lostCb
     const capture: AudioCapture = {
       async close() {
         closeCalls += 1
@@ -131,6 +137,7 @@ function makeFakeCapture() {
   return {
     startCapture,
     feed: (samples: Float32Array) => onSamples?.(samples),
+    loseCapture: () => onCaptureLost?.(),
     getCloseCalls: () => closeCalls,
   }
 }
@@ -320,6 +327,87 @@ describe('createOpenWakeWordDetectorWithDeps', () => {
     expect(getCloseCalls()).toBe(0)
     await detector.stop()
     expect(getCloseCalls()).toBe(1)
+  })
+
+  // The bug this batch of tests exists to catch: a MediaStreamTrack ending
+  // mid-session (mic permission revoked, device unplugged, ...) used to go
+  // completely unnoticed -- no more audio arrived, but nothing told the
+  // caller, so the app kept claiming to be listening while actually deaf.
+  // `loseCapture()` (see makeFakeCapture above) simulates the fatal
+  // `onCaptureLost` signal a real capture reports for exactly that browser
+  // event -- see startRealCapture in openWakeWordDetector.ts for the
+  // fatal-vs-transient reasoning (track `ended`, not `mute`/`unmute`).
+  it('reports a mid-session capture loss through onFailure and releases resources, without calling onWake', async () => {
+    const { sessions } = makeFakeSessions(() => 0.9) // score would cross WAKE_THRESHOLD if a pass ever ran
+    const { startCapture, loseCapture, getCloseCalls } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps({ loadSessions: async () => sessions, startCapture })
+
+    let wakeCount = 0
+    const failures: string[] = []
+    await detector.start(
+      () => {
+        wakeCount += 1
+      },
+      (message) => failures.push(message),
+    )
+
+    expect(getCloseCalls()).toBe(0)
+    loseCapture()
+    await flush()
+
+    // Resources released exactly like a real stop() would -- this must not
+    // leave an AudioContext/ScriptProcessorNode (or, here, the fake
+    // capture's own close()) hanging around unreleased.
+    expect(getCloseCalls()).toBe(1)
+    // Reported through the same onFailure channel a real detector's
+    // start() takes, exactly once, with a message a caller can show the
+    // user -- not silently swallowed, and not reported as a wake.
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toBeTruthy()
+    expect(wakeCount).toBe(0)
+  })
+
+  it('does not run any further detection passes after a mid-session capture loss', async () => {
+    const { sessions, getCalls } = makeFakeSessions(() => 0.9)
+    const { startCapture, feed, loseCapture } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps({ loadSessions: async () => sessions, startCapture })
+
+    let wakeCount = 0
+    await detector.start(() => {
+      wakeCount += 1
+    })
+
+    loseCapture()
+    await flush()
+
+    // Audio arriving after the capture is already gone (a straggling
+    // callback, in a real browser) must not resurrect detection.
+    feed(new Float32Array(SAMPLES_NEEDED))
+    await flush()
+
+    expect(getCalls().melspecCalls).toBe(0)
+    expect(wakeCount).toBe(0)
+  })
+
+  it('a deliberate stop() does NOT report a failure -- an intentional stop is not an error', async () => {
+    const { sessions } = makeFakeSessions(() => 0)
+    const { startCapture } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps({ loadSessions: async () => sessions, startCapture })
+
+    const failures: string[] = []
+    await detector.start(
+      () => {},
+      (message) => failures.push(message),
+    )
+
+    await detector.stop()
+
+    // This is the regression this test exists to catch: if stop() were
+    // ever wired to the same failure-reporting path as a real capture
+    // loss, unticking the passive-listening checkbox would show a scary
+    // "microphone lost" error every single time, for a fully intentional
+    // action.
+    expect(failures).toEqual([])
   })
 
   it('rejects start() when the ONNX models fail to load, instead of resolving into a silent no-op', async () => {

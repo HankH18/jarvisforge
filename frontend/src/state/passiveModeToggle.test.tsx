@@ -68,6 +68,40 @@ describe('App: passive mode toggle', () => {
     expect(toggle).not.toBeChecked();
   });
 
+  // Guards the opposite mistake from the mid-session-loss test further
+  // below: an intentional stop (the user unticking the box themselves) is
+  // NOT a failure and must never render the same scary error a real
+  // capture loss does. Getting this backwards -- e.g. by wiring stop() into
+  // the same onFailure/onDetectorFailure channel as a genuine failure --
+  // would show a "microphone lost" alert every single time a user turns
+  // passive listening off on purpose.
+  it('switching passive listening off deliberately does not surface any error', async () => {
+    const session = createFakeSession()
+    const tokenFn = fakeFetchToken({ token: 'tok', url: 'wss://jarvis.test/rtc' })
+    const detector = new FakeWakeDetector()
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn, identity: 'web-toggle-off-clean' }}
+        wake={{ createDetector: async () => detector }}
+      />,
+    )
+
+    const toggle = screen.getByRole('checkbox', { name: /passive listening/i })
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(screen.getByTestId('passive-state')).toBeInTheDocument()
+    })
+
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(detector.stopCalls).toBe(1)
+    })
+
+    expect(toggle).not.toBeChecked()
+    expect(screen.queryByTestId('passive-error')).not.toBeInTheDocument()
+  })
+
   // Defect A (Hank's report): the checkbox used to do nothing when passive
   // mode couldn't actually start -- `void controller.start()` inside
   // usePassiveWakeSession.ts discarded the rejection, so the box stayed
@@ -101,6 +135,51 @@ describe('App: passive mode toggle', () => {
     // jsdom's fireEvent, which -- unrealistically -- still fires a click
     // on a disabled input, so simulating "the user can't click this" isn't
     // meaningful to assert here); toBeDisabled() above is what's load-bearing.
+  })
+
+  // Hank's report: revoking mic permission (or the device disconnecting)
+  // WHILE passive listening is already running went completely unnoticed --
+  // the underlying MediaStreamTrack ends, no more audio arrives, but the UI
+  // kept showing "Listening for hey Jarvis..." forever, deaf but still
+  // claiming to listen. This is the mid-session sibling of the start-denied
+  // test above (which must keep passing unchanged -- asserted right after
+  // this one): both must surface a visible, role=alert error and reset the
+  // checkbox, but this one only shows up AFTER start() already resolved,
+  // so it cannot be a rejected start() promise -- it has to reach the UI
+  // through WakeDetector's separate onFailure channel (wakeDetector.ts).
+  it('surfaces a mid-session microphone loss in the UI and resets the checkbox, same as a start failure', async () => {
+    const session = createFakeSession()
+    const tokenFn = fakeFetchToken({ token: 'tok', url: 'wss://jarvis.test/rtc' })
+    const detector = new FakeWakeDetector()
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn, identity: 'web-mid-session-loss' }}
+        wake={{ createDetector: async () => detector }}
+      />,
+    )
+
+    const toggle = screen.getByRole('checkbox', { name: /passive listening/i })
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('passive-state')).toHaveTextContent('Listening for "hey Jarvis"…')
+    })
+    expect(screen.queryByTestId('passive-error')).not.toBeInTheDocument()
+
+    // Simulate the MediaStreamTrack ending mid-session (permission revoked,
+    // device unplugged, ...) -- the real detector's onCaptureLost path,
+    // stood in for here by the fake's failMidSession().
+    detector.failMidSession('Passive listening lost microphone input.')
+
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked()
+    })
+    expect(screen.getByTestId('passive-error')).toHaveTextContent('Passive listening lost microphone input.')
+    expect(screen.getByTestId('passive-error')).toHaveAttribute('role', 'alert')
+    // Nothing claims to be listening once the toggle has reset -- this is
+    // the exact defect being fixed: the old code left this rendered forever.
+    expect(screen.queryByTestId('passive-state')).not.toBeInTheDocument()
   })
 
   it("surfaces a start failure in the UI and resets the checkbox, instead of leaving it checked with nothing running", async () => {

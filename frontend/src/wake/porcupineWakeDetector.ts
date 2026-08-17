@@ -40,12 +40,22 @@ interface PorcupineWorkerLike {
   release(): Promise<void>
 }
 
+/** `options.processErrorCallback`, per the real @picovoice/porcupine-web
+ * API this hand-rolled type stands in for, is how the Porcupine Web SDK
+ * reports an engine-level failure after PorcupineWorker.create() has
+ * already resolved -- e.g. its underlying WebVoiceProcessor mic stream
+ * ending. That's this SDK's equivalent of openWakeWordDetector.ts's
+ * MediaStreamTrack `ended` handling (see that file for the fuller
+ * reasoning): a failure that must reach WakeDetector's `onFailure`
+ * (wakeDetector.ts) rather than leave this detector silently dead. */
 interface PorcupineWebModuleLike {
   PorcupineWorker: {
     create(
       accessKey: string,
       keyword: { builtin: string } | string,
       keywordCallback: () => void,
+      modelParams?: unknown,
+      options?: { processErrorCallback?: (error: Error) => void },
     ): Promise<PorcupineWorkerLike>
   }
 }
@@ -79,18 +89,36 @@ export async function createPorcupineWakeDetector(accessKey: string): Promise<Wa
 
   let worker: PorcupineWorkerLike | null = null
 
+  // Shared by stop() and the mid-session failure path below so both release
+  // exactly the same way and neither can double-release: whichever runs
+  // first nulls `worker` out, so the other (if it also runs) sees `worker`
+  // already null and does nothing.
+  const release = async (): Promise<void> => {
+    if (!worker) return
+    const active = worker
+    worker = null
+    await WebVoiceProcessor.unsubscribe(active)
+    await active.release()
+  }
+
   return {
-    async start(onWake: () => void): Promise<void> {
-      worker = await PorcupineWorker.create(accessKey, { builtin: 'Jarvis' }, onWake)
+    async start(onWake: () => void, onFailure?: (message: string) => void): Promise<void> {
+      worker = await PorcupineWorker.create(accessKey, { builtin: 'Jarvis' }, onWake, undefined, {
+        // See PorcupineWebModuleLike's comment above: this is how a
+        // failure AFTER a successful start (e.g. the SDK's own mic stream
+        // ending) reaches WakeDetector's onFailure, mirroring
+        // openWakeWordDetector.ts's track-`ended` handling. Release first,
+        // exactly like stop() does, then report -- never leave the engine
+        // half torn-down while claiming to have failed.
+        processErrorCallback: (error) => {
+          void release().then(() => onFailure?.(error.message))
+        },
+      })
       await WebVoiceProcessor.subscribe(worker)
     },
 
     async stop(): Promise<void> {
-      if (!worker) return
-      const active = worker
-      worker = null
-      await WebVoiceProcessor.unsubscribe(active)
-      await active.release()
+      await release()
     },
   }
 }

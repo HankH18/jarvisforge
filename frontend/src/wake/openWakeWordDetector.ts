@@ -134,8 +134,20 @@ export interface OpenWakeWordDeps {
   loadSessions(): Promise<OpenWakeWordSessions>
   /** Start 16 kHz mono microphone capture. `onSamples` is called with each
    * new batch of raw PCM. Rejecting here is how "mic permission denied"
-   * surfaces as a rejected start(), same as loadSessions above. */
-  startCapture(onSamples: (samples: Float32Array) => void): Promise<AudioCapture>
+   * surfaces as a rejected start(), same as loadSessions above.
+   *
+   * `onCaptureLost` is this capture's own way to report that it has
+   * stopped supplying audio ON ITS OWN, sometime after this promise has
+   * already resolved -- see startRealCapture below for exactly which
+   * browser signal that maps to (the MediaStreamTrack `ended` event) and
+   * why. Never called as a result of this capture's own `close()`. This is
+   * the source, one layer down, of WakeDetector's `onFailure` (see
+   * wakeDetector.ts) -- createOpenWakeWordDetectorWithDeps below is what
+   * turns this into that. */
+  startCapture(
+    onSamples: (samples: Float32Array) => void,
+    onCaptureLost: () => void,
+  ): Promise<AudioCapture>
 }
 
 function squeeze(dims: readonly number[]): number[] {
@@ -385,7 +397,7 @@ export function createOpenWakeWordDetectorWithDeps(
   let diagLastLogAt = 0
 
   return {
-    async start(onWake: () => void): Promise<void> {
+    async start(onWake: () => void, onFailure?: (message: string) => void): Promise<void> {
       // Models before microphone: if the pipeline can't run at all, no
       // point prompting for mic permission first.
       const sessions = await deps.loadSessions()
@@ -400,63 +412,94 @@ export function createOpenWakeWordDetectorWithDeps(
       diagLastLogAt = 0
       if (diagnosticsEnabled) publishWakeDiagnostics(INITIAL_WAKE_DIAGNOSTICS)
 
-      capture = await deps.startCapture((samples) => {
+      // Reports a mid-session capture loss the same way stop() releases
+      // resources -- see AudioCapture's onCaptureLost / wakeDetector.ts's
+      // onFailure for why this exists and what it must guarantee. Guarded
+      // by `stopped` so this can never fire twice, and never fires after a
+      // deliberate stop() has already torn things down (stop() sets
+      // `stopped = true` too, so a capture-lost signal that arrives after
+      // -- or racing with -- a real stop() is a no-op here, same as this
+      // file's onaudioprocess callback already guards itself above).
+      const reportCaptureLost = async (): Promise<void> => {
         if (stopped) return
-        for (let i = 0; i < samples.length; i += 1) buffer.push(samples[i])
-        if (buffer.length > BUFFER_CAP_SAMPLES) {
-          buffer.splice(0, buffer.length - BUFFER_CAP_SAMPLES)
+        stopped = true
+        const c = capture
+        capture = null
+        buffer = []
+        const message =
+          'Passive listening lost microphone input -- permission may have been revoked or the device disconnected.'
+        if (diagnosticsEnabled) {
+          publishWakeDiagnostics({ score: wakeDiagnosticsSnapshot.score, max: diagMaxScore, error: message })
         }
-        newSinceLastRun += samples.length
-        if (newSinceLastRun < HOP_SAMPLES || passInFlight) return
-        newSinceLastRun = 0
-        passInFlight = true
-        runDetectionPass(sessions, buffer)
-          .then((score) => {
-            // Diagnostics only -- reads `score`/`stopped` but never writes
-            // anything the detection logic below (unchanged, same two
-            // lines as before this diagnostics feature existed) reads.
-            if (diagnosticsEnabled && !stopped && score !== null) {
-              if (!Number.isNaN(score)) {
-                diagMaxScore = diagMaxScore === null ? score : Math.max(diagMaxScore, score)
-              }
-              publishWakeDiagnostics({ score, max: diagMaxScore, error: null })
-              const now = Date.now()
-              if (now - diagLastLogAt >= DIAG_LOG_INTERVAL_MS) {
-                diagLastLogAt = now
-                console.log(
-                  `[wake] score=${formatWakeDiagnosticValue(score)} max=${formatWakeDiagnosticValue(diagMaxScore)}`,
-                )
-              }
-            }
+        await c?.close()
+        onFailure?.(message)
+      }
 
-            if (score === null || stopped) return
-            const now = Date.now()
-            if (score >= WAKE_THRESHOLD && now - lastFireAt >= COOLDOWN_MS) {
-              lastFireAt = now
-              onWake()
-            }
-          })
-          .catch((err: unknown) => {
-            // Unconditional, regardless of diagnosticsEnabled -- an
-            // inference-pass error must never be silently swallowed. This
-            // line predates the diagnostics feature; it's why failure
-            // mode (c) ("inference throws and the error is swallowed")
-            // was never actually possible in this file, even before this
-            // change -- see the final report for the audit that confirmed
-            // that.
-            console.error('[wake] openWakeWord detection pass failed', err)
-            if (diagnosticsEnabled && !stopped) {
-              publishWakeDiagnostics({
-                score: wakeDiagnosticsSnapshot.score,
-                max: diagMaxScore,
-                error: err instanceof Error ? err.message : String(err),
-              })
-            }
-          })
-          .finally(() => {
-            passInFlight = false
-          })
-      })
+      capture = await deps.startCapture(
+        (samples) => {
+          if (stopped) return
+          for (let i = 0; i < samples.length; i += 1) buffer.push(samples[i])
+          if (buffer.length > BUFFER_CAP_SAMPLES) {
+            buffer.splice(0, buffer.length - BUFFER_CAP_SAMPLES)
+          }
+          newSinceLastRun += samples.length
+          if (newSinceLastRun < HOP_SAMPLES || passInFlight) return
+          newSinceLastRun = 0
+          passInFlight = true
+          runDetectionPass(sessions, buffer)
+            .then((score) => {
+              // Diagnostics only -- reads `score`/`stopped` but never writes
+              // anything the detection logic below (unchanged, same two
+              // lines as before this diagnostics feature existed) reads.
+              if (diagnosticsEnabled && !stopped && score !== null) {
+                if (!Number.isNaN(score)) {
+                  diagMaxScore = diagMaxScore === null ? score : Math.max(diagMaxScore, score)
+                }
+                publishWakeDiagnostics({ score, max: diagMaxScore, error: null })
+                const now = Date.now()
+                if (now - diagLastLogAt >= DIAG_LOG_INTERVAL_MS) {
+                  diagLastLogAt = now
+                  console.log(
+                    `[wake] score=${formatWakeDiagnosticValue(score)} max=${formatWakeDiagnosticValue(diagMaxScore)}`,
+                  )
+                }
+              }
+
+              if (score === null || stopped) return
+              const now = Date.now()
+              if (score >= WAKE_THRESHOLD && now - lastFireAt >= COOLDOWN_MS) {
+                lastFireAt = now
+                onWake()
+              }
+            })
+            .catch((err: unknown) => {
+              // Unconditional, regardless of diagnosticsEnabled -- an
+              // inference-pass error must never be silently swallowed. This
+              // line predates the diagnostics feature; it's why failure
+              // mode (c) ("inference throws and the error is swallowed")
+              // was never actually possible in this file, even before this
+              // change -- see the final report for the audit that confirmed
+              // that.
+              console.error('[wake] openWakeWord detection pass failed', err)
+              if (diagnosticsEnabled && !stopped) {
+                publishWakeDiagnostics({
+                  score: wakeDiagnosticsSnapshot.score,
+                  max: diagMaxScore,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              }
+            })
+            .finally(() => {
+              passInFlight = false
+            })
+        },
+        () => {
+          // The fatal signal itself (see startRealCapture's `track.onended`
+          // wiring, and this function's own `stopped` guard above for why
+          // this can never double-fire or fire after a deliberate stop()).
+          void reportCaptureLost()
+        },
+      )
     },
 
     async stop(): Promise<void> {
@@ -524,7 +567,10 @@ async function loadRealSessions(): Promise<OpenWakeWordSessions> {
   }
 }
 
-async function startRealCapture(onSamples: (samples: Float32Array) => void): Promise<AudioCapture> {
+async function startRealCapture(
+  onSamples: (samples: Float32Array) => void,
+  onCaptureLost: () => void,
+): Promise<AudioCapture> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   })
@@ -566,8 +612,47 @@ async function startRealCapture(onSamples: (samples: Float32Array) => void): Pro
   processor.connect(silence)
   silence.connect(audioContext.destination)
 
+  // Fatal-vs-transient call for this file's one raw MediaStreamTrack (mono
+  // capture above -- see the getUserMedia call, `channelCount: 1`):
+  //
+  //   - `ended` (and readyState flipping to 'ended' at the same moment) is
+  //     the browser's own signal that this track will NEVER supply audio
+  //     again -- fired when the user revokes microphone permission, the
+  //     input device is unplugged/removed, or the browser otherwise stops
+  //     the track outright. Per the MediaStreamTrack spec this transition
+  //     is one-way: a track that has ended cannot un-end. That
+  //     irreversibility is exactly the "we are no longer receiving audio,
+  //     and never will be again on this track" signal this bug fix needs,
+  //     so it -- and only it -- is treated as fatal here.
+  //   - `mute`/`unmute` are deliberately NOT listened to. Per the same
+  //     spec, `mute` fires whenever the track is merely, temporarily unable
+  //     to supply data (e.g. a transient OS/driver hiccup, a Bluetooth
+  //     dropout) and is routinely followed by `unmute` moments later on
+  //     that very same still-live track -- readyState stays 'live' the
+  //     whole time. Treating a mute blip as fatal would flash a scary
+  //     "microphone lost" error, reset passive mode, and force the user to
+  //     re-enable it for a hiccup that would have recovered on its own.
+  //
+  // One listener for however many tracks the stream has (one, given
+  // `channelCount: 1` above) -- iterating rather than assuming exactly one
+  // so this still behaves if that ever changes.
+  const tracks = stream.getTracks()
+  const handleTrackEnded = () => onCaptureLost()
+  for (const track of tracks) track.addEventListener('ended', handleTrackEnded)
+
   return {
     async close() {
+      // Unregister before track.stop() below. Per spec, a script-initiated
+      // stop() does NOT itself fire `ended` (only an externally-caused end
+      // does) -- so this isn't strictly required to stop today's browsers
+      // from looping a deliberate close() back around into a false
+      // capture-loss report. It's kept anyway as a deliberate belt-and-
+      // braces guard for the "stop() must never report an error" behavior
+      // this bug fix is required to preserve: it costs nothing, and it
+      // means that guarantee doesn't quietly depend on every current and
+      // future browser continuing to honor a spec nuance this file cannot
+      // verify at runtime.
+      for (const track of tracks) track.removeEventListener('ended', handleTrackEnded)
       processor.onaudioprocess = null
       source.disconnect()
       processor.disconnect()
