@@ -58,6 +58,7 @@ find . \
      -o -name .codegraph \
      -o -path './backend/var' -o -path './var' \
      -o -path './.claude/claims' -o -path './.claude/evidence' \
+     -o -path './.claude/monitor' -o -path './.claude/watchdog' \
      -o -path './.claude/evidence-v1' \
      -o -path './frontend/dist' \
   \) -prune \
@@ -66,6 +67,7 @@ find . \
      ! -name '.DS_Store' \
      ! -name '*.zip' \
      ! -name 'heartbeat.jsonl' \
+     ! -name 'NEEDS_HUMAN.md' \
      -print \
   | sed 's#^\./##' \
   > "$FILELIST"
