@@ -1,9 +1,0 @@
-{
- "ticket": "T-32",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "bash scripts/tests/run_smoke_exit_code_tests.sh",
- "commit": "8c99e549b39a49af8b79e341fb9b65693d983282",
- "fingerprint": "c26e3b726aae736a7ee31d66fcf286c23062d1837be49bd42f37e950276f2496",
- "attempts": 0,
- "ts": 1786852102
-}
