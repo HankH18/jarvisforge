@@ -1,9 +1,0 @@
-{
- "ticket": "T-12",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "cd frontend && npm run -s test -- --run",
- "commit": "f63c920d81b86d4808cb964db03d496a882d1e9e",
- "fingerprint": "db4c87eadd45977233e1213af846f430b347eaa78b680fa77761ddd686375513",
- "attempts": 0,
- "ts": 1786835781
-}
