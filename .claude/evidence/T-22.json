@@ -1,9 +1,0 @@
-{
- "ticket": "T-22",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "bash scripts/tests/run_evidence_tests.sh",
- "commit": "43ae44c22af6e476ea0deb064c0243b8c0ff79cc",
- "fingerprint": "27f49d6f30188ceef20023ebd044824a81291ec0324dafe9e35749e85c8e8f6b",
- "attempts": 0,
- "ts": 1786948524
-}
