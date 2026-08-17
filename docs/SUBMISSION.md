@@ -98,6 +98,16 @@ Hank has actually sent the email and filled this in himself.
   in `docs/agent-pr-demo.md` §"Token-scope finding") closes it. Not part of
   T-13's acceptance criteria, but worth fixing before this is called a
   finished bonus.
-- **R11 (wake word) needs a Picovoice AccessKey and two npm packages**
-  (`@picovoice/porcupine-web`, `@picovoice/web-voice-processor`) that are
-  not currently installed — see `docs/TECHNICAL.md` §5 for detail.
+- **R11 (wake word) is implemented and wired in as the default, but
+  detection has not been confirmed by a human.** Picovoice discontinued
+  free-tier Porcupine AccessKeys, so the default engine is now openWakeWord's
+  keyless "hey Jarvis" model running on-device via `onnxruntime-web` — no
+  key, no signup, no env var, loading lazily only once passive mode is
+  switched on. The 134 frontend tests (including
+  `openWakeWordDetector.test.ts`) prove the orchestration around it, not
+  that real speech triggers it: no one has yet said "hey Jarvis" at a
+  deployed build. Worth doing once before the demo video, since the video
+  content checklist (item above) may end up wanting to show it. Also note
+  the three vendored model weight files are CC BY-NC-SA 4.0
+  (NonCommercial), not the same license as the rest of the stack — see
+  `docs/TECHNICAL.md` §5 and `frontend/public/wake-models/NOTICE.md`.

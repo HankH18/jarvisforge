@@ -151,9 +151,12 @@ that way.
 - **`flyctl` is authenticated** as `holcombhank@icloud.com`. Apps:
   `jarvisforge` (deployed) and `jarvisforge-pgvector`.
 - **`gh` is authenticated** as `HankH18` via the repo-root `GITHUB_TOKEN`.
-- **No Picovoice key and no `AGENT_PR_ALLOWED_REPOS` exist in `.env`.** The
-  wake word (R11) and the issue→PR job both need these; the PR job denies by
-  default when the allow-list is unset, which is intentional.
+- **No `AGENT_PR_ALLOWED_REPOS` exists in `.env`.** The issue→PR job needs
+  it; the PR job denies by default when the allow-list is unset, which is
+  intentional. (R11's wake word does *not* need anything in `.env` anymore —
+  Picovoice killed the free tier this was originally built against, so the
+  default engine is now openWakeWord, which is keyless. See
+  `docs/TECHNICAL.md` §5.)
 
 ---
 
