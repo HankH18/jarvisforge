@@ -14,6 +14,25 @@ WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+
+# Clerk's PUBLISHABLE key must be present HERE, at build time, not at runtime.
+# Vite inlines `VITE_`-prefixed vars into the bundle when it compiles, so a Fly
+# secret cannot supply it -- by the time the container runs, the JS is already
+# written. Setting it as a runtime secret looks like it should work and does
+# nothing at all, which is precisely how this app spent its deployed life in
+# anonymous mode while the key sat in a local .env. (Same trap that kept the
+# Porcupine wake key from ever reaching a build.)
+#
+# Passed via `flyctl deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_...`.
+# It is NOT a secret in the meaningful sense -- a publishable key is designed
+# to ship to browsers and is readable in any bundle -- so a build arg is the
+# right mechanism. The SECRET key is a Fly runtime secret and must never come
+# anywhere near this stage.
+#
+# Empty is a supported state: the app falls back to single-user anonymous mode
+# and says so in the console, rather than failing the build.
+ARG VITE_CLERK_PUBLISHABLE_KEY=""
+ENV VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
 RUN npm run build
 
 # ---- stage 2: build the Python backend into a venv ------------------------
