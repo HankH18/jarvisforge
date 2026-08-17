@@ -18,11 +18,15 @@
 # checked and why it failed when it fails.
 #
 # This gate is EXPECTED to fail right now and that is correct behavior, not
-# a bug in this script: the repo has no git remote (so "private" cannot be
-# confirmed), Cartesia TTS is returning HTTP 402 so no demo video can be
-# recorded, and the zip cannot be emailed by this script (that is a human
-# action). See docs/SUBMISSION.md for the human action list this gate's
-# failures map onto.
+# a bug in this script: two git remotes exist (github, gitlab) but the
+# repo-private check still fails, because the saved labs.gauntletai.com PAT
+# lacks the api/read_api scope (observed: HTTP 403), so visibility cannot be
+# confirmed via the API; Cartesia TTS was upgraded 2026-08-15 and the
+# deployed assistant speaks (see docs/latency-report.md), but no demo video
+# file has been placed under submission/video/ yet -- a human recording
+# task, not a TTS outage; and the zip cannot be emailed by this script (that
+# is a human action). See docs/SUBMISSION.md for the human action list this
+# gate's failures map onto.
 #
 # Usage: verify_submission.sh [project_dir]
 #   project_dir defaults to this repo. The optional argument exists so
@@ -55,11 +59,15 @@ fi
 #
 # The Gauntlet AI submission target is a SELF-HOSTED GITLAB at
 # labs.gauntletai.com (user hankholcomb) -- NOT github.com (see the global
-# Gauntlet AI setup instructions and CLAUDE.md). This repo currently has NO
-# git remote at all, so this check cannot be performed today; it fails
-# honestly and says exactly what is missing rather than checking the wrong
-# host or assuming private. This script never pushes, never creates a
-# remote, and never changes repo visibility -- it only ever reads.
+# Gauntlet AI setup instructions and CLAUDE.md). Two remotes exist in this
+# repo (github, gitlab); the branches below still handle a missing or
+# wrong-host remote honestly (they say exactly what is missing rather than
+# checking the wrong host or assuming private), but the current failure mode
+# is different: the labs.gauntletai.com remote is present and the saved PAT
+# authenticates, yet the GitLab API call returns HTTP 403 because that PAT
+# only has write_repository scope, not api/read_api -- so visibility cannot
+# be read. This script never pushes, never creates a remote, and never
+# changes repo visibility -- it only ever reads.
 # ---------------------------------------------------------------------------
 echo
 echo "-- [2/6] repo-private confirmation --"
@@ -115,7 +123,7 @@ else
           OVERALL_FAIL=1
         fi
       elif [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
-        echo "verify_submission: FAILED -- repo-private check: GitLab API returned HTTP ${HTTP_STATUS} for ${API_URL}. The saved token is likely write-only (write_repository scope) without api/read_api scope -- an API 401 while 'git push' works means the token is write-only, not invalid. Mint or use a token with read_api scope, or confirm visibility manually in the GitLab UI." >&2
+        echo "verify_submission: FAILED -- repo-private check: GitLab API returned HTTP ${HTTP_STATUS} for ${API_URL}. The saved token is likely write-only (write_repository scope) without api/read_api scope -- an API 401 or 403 while 'git push' works means the token is write-only, not invalid (observed on this repo: 403). Mint or use a token with read_api scope, or confirm visibility manually in the GitLab UI." >&2
         OVERALL_FAIL=1
       else
         echo "verify_submission: FAILED -- repo-private check: GitLab API call to ${API_URL} returned HTTP ${HTTP_STATUS:-<no response>}, expected 200. Cannot confirm visibility." >&2
@@ -128,12 +136,14 @@ fi
 # ---------------------------------------------------------------------------
 # 3. Demo video file present.
 #
-# The video cannot be recorded right now: Cartesia TTS returns HTTP 402
-# ("Model credits limit reached", independently confirmed -- see
-# docs/latency-report.md and docs/SUBMISSION.md), so the deployed app
-# currently produces no audio at all, and a demo of a voice assistant that
-# cannot speak is not possible. Separately, SPEC.md's Open question 1 means
-# even the required *content* checklist for the video is not finalized yet.
+# Cartesia TTS was upgraded 2026-08-15 and the deployed assistant
+# demonstrably speaks (independently confirmed -- see docs/latency-report.md
+# and docs/SUBMISSION.md), so recording is no longer blocked on that front.
+# The only reason this check fails is that no video file has been placed
+# under submission/video/ yet -- a human recording/upload task, nothing
+# else. Separately, SPEC.md's Open question 1 means the required *content*
+# checklist for the video is not finalized yet, which is a real but distinct
+# blocker on finalizing that checklist, not on recording something now.
 # This check looks for a real video file and fails honestly when none
 # exists, rather than accepting a placeholder.
 # ---------------------------------------------------------------------------
@@ -153,9 +163,9 @@ if [ -n "$VIDEO_FOUND" ]; then
   echo "verify_submission: demo video check PASSED -- found ${VIDEO_FOUND} (${SIZE_H})."
 else
   echo "verify_submission: FAILED -- demo video check: no video file found under ${VIDEO_DIR} (looked for *.mp4/*.mov/*.mkv/*.webm/*.avi)." >&2
-  echo "  BLOCKED: Cartesia TTS is returning HTTP 402 (Model credits limit reached) on the deployed app -- it currently cannot speak any response, so a voice-assistant demo cannot be recorded. Restore Cartesia billing/credits first." >&2
-  echo "  ALSO BLOCKED: SPEC.md Open question 1 -- the required video content checklist (and the Attachments section) was cut off in the provided PRD screenshots and is not finalized. Supply that region before recording." >&2
-  echo "  Once both are resolved: record the 5-10 min demo (incl. GitHub Q&A against the chosen active mid-size OSS repo) and place it at ${VIDEO_DIR}/<name>.<ext>, then re-run." >&2
+  echo "  Cartesia TTS was upgraded 2026-08-15 and the deployed assistant speaks (see docs/latency-report.md) -- nothing about TTS blocks recording. This check fails only because no video file has been placed under ${VIDEO_DIR} yet." >&2
+  echo "  NOTE: SPEC.md Open question 1 -- the required video content checklist (and the Attachments section) was cut off in the provided PRD screenshots and is not finalized. That blocks finalizing the checklist, not recording; get that region from Hank when convenient." >&2
+  echo "  Record the 5-10 min demo (incl. GitHub Q&A against the chosen active mid-size OSS repo) and place it at ${VIDEO_DIR}/<name>.<ext>, then re-run." >&2
   OVERALL_FAIL=1
 fi
 
