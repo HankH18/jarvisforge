@@ -25,6 +25,12 @@ describe('App: passive mode toggle', () => {
     expect(toggle).not.toBeChecked()
     expect(detector.startCalls).toBe(0)
     expect(screen.queryByTestId('passive-state')).not.toBeInTheDocument()
+    // The label must name the actual wake phrase the shipped openWakeWord
+    // model listens for ("hey Jarvis", not Porcupine-era single-word
+    // "Jarvis" -- see wake/openWakeWordDetector.ts), or a user who follows
+    // the on-screen instruction will say the wrong thing and never trigger
+    // it.
+    expect(screen.getByText('Passive listening (say "hey Jarvis")')).toBeInTheDocument()
   });
 
   it('switching it on starts passive listening without joining a session', async () => {
@@ -47,6 +53,13 @@ describe('App: passive mode toggle', () => {
       expect(detector.startCalls).toBe(1);
     });
     expect(session.connectCalls).toEqual([]);
+    // Once actually listening, the status line must also name the real
+    // wake phrase -- this is the second place App.tsx renders it (see
+    // App.tsx's passive-state paragraph), and it's easy to fix one
+    // occurrence and miss the other.
+    await waitFor(() => {
+      expect(screen.getByTestId('passive-state')).toHaveTextContent('Listening for "hey Jarvis"…');
+    });
 
     fireEvent.click(toggle);
     await waitFor(() => {

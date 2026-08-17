@@ -178,7 +178,7 @@ export default function App(props?: {
               setPassiveModeEnabled(event.target.checked)
             }}
           />
-          Passive listening (say "Jarvis")
+          Passive listening (say "hey Jarvis")
         </label>
         {!wakeAvailable && (
           <p className="app__passive-note" data-testid="passive-unavailable">
@@ -193,7 +193,7 @@ export default function App(props?: {
         )}
         {passiveModeEnabled && (
           <p className="app__passive-state" data-testid="passive-state">
-            {passiveState === 'passive' ? 'Listening for "Jarvis"…' : null}
+            {passiveState === 'passive' ? 'Listening for "hey Jarvis"…' : null}
           </p>
         )}
 
