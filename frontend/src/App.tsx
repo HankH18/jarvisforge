@@ -174,79 +174,120 @@ export default function App(props?: {
     }
   }
 
+  // Presentation-only follow-up: the Clerk widget used to render inline in
+  // the header alongside the rest of the console, which read as a widget
+  // dropped into a page rather than a deliberate gate. Now shown this way
+  // only for 'signed-out' -- the moment Clerk actually mounts its
+  // <SignIn/> widget (see SignInPanel) -- as a centered modal over a
+  // full-viewport, opaque backdrop that hides the console entirely.
+  // 'loading', 'unavailable', and 'signed-in' are unchanged: SignInPanel
+  // keeps rendering inline in the header exactly as before for those
+  // three, so single-user (no key configured) mode is untouched.
+  //
+  // The rest of the app (`.app`) is marked both aria-hidden and inert
+  // while the overlay is up: aria-hidden alone would hide it from screen
+  // readers but leave its buttons/inputs still reachable by Tab, landing
+  // a sighted keyboard user on invisible controls behind an opaque
+  // backdrop. `inert` additionally pulls the whole subtree out of the tab
+  // order (and blocks pointer events), so nothing behind the modal is
+  // reachable by any input method while it's showing.
+  const showAuthOverlay = auth.status === 'signed-out'
+
   return (
-    <div className="app">
-      <header className="app__header">
-        <h1 className="app__title">Jarvis</h1>
-        <p className="app__tagline">A calm voice console for your agent.</p>
-        <SignInPanel auth={auth} onSignOut={() => void handleSignOut()} />
-      </header>
+    <>
+      {showAuthOverlay && (
+        <div className="app__auth-overlay" data-testid="auth-overlay">
+          <div
+            className="app__auth-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-overlay-title"
+          >
+            <h2 className="app__auth-modal-title" id="auth-overlay-title">
+              Sign in to Jarvis
+            </h2>
+            <SignInPanel auth={auth} onSignOut={() => void handleSignOut()} />
+          </div>
+        </div>
+      )}
+      <div
+        className="app"
+        data-testid="app-content"
+        aria-hidden={showAuthOverlay || undefined}
+        inert={showAuthOverlay}
+      >
+        <header className="app__header">
+          <h1 className="app__title">Jarvis</h1>
+          <p className="app__tagline">A calm voice console for your agent.</p>
+          {!showAuthOverlay && <SignInPanel auth={auth} onSignOut={() => void handleSignOut()} />}
+        </header>
 
-      <main className="app__main">
-        <AgentStateIndicator state={session.agentState} status={session.status} />
-        <TranscriptView lines={session.transcript} />
-      </main>
+        <main className="app__main">
+          <AgentStateIndicator state={session.agentState} status={session.status} />
+          <TranscriptView lines={session.transcript} />
+        </main>
 
-      <footer className="app__footer">
-        {session.error && (
-          <p className="app__error" role="alert">
-            {session.error}
-          </p>
-        )}
+        <footer className="app__footer">
+          {session.error && (
+            <p className="app__error" role="alert">
+              {session.error}
+            </p>
+          )}
 
-        {!isConnected && isSignedIn && (
-          <p className="app__room" data-testid="room-note-signed-in">
-            Signed in — you&apos;ll join your own private room.
-          </p>
-        )}
+          {!isConnected && isSignedIn && (
+            <p className="app__room" data-testid="room-note-signed-in">
+              Signed in — you&apos;ll join your own private room.
+            </p>
+          )}
 
-        <label className="app__passive-toggle">
-          <input
-            type="checkbox"
-            checked={passiveModeEnabled}
-            disabled={!wakeAvailable}
-            onChange={(event) => {
-              // Clear any error from a previous attempt on every toggle
-              // interaction (on or off) -- it belongs to that attempt, not
-              // to whatever the user does next.
-              setPassiveError(null)
-              setPassiveModeEnabled(event.target.checked)
-            }}
+          <label className="app__passive-toggle">
+            <input
+              type="checkbox"
+              checked={passiveModeEnabled}
+              disabled={!wakeAvailable}
+              onChange={(event) => {
+                // Clear any error from a previous attempt on every toggle
+                // interaction (on or off) -- it belongs to that attempt, not
+                // to whatever the user does next.
+                setPassiveError(null)
+                setPassiveModeEnabled(event.target.checked)
+              }}
+            />
+            Passive listening (say "hey Jarvis")
+          </label>
+          {!wakeAvailable && (
+            <p className="app__passive-note" data-testid="passive-unavailable">
+              Passive listening is unavailable in this browser — it needs WebAssembly and
+              microphone access support, which weren&apos;t both detected here.
+            </p>
+          )}
+          {passiveError && (
+            <p className="app__error" role="alert" data-testid="passive-error">
+              {passiveError}
+            </p>
+          )}
+          {passiveModeEnabled && (
+            <p className="app__passive-state" data-testid="passive-state">
+              {passiveState === 'passive' ? 'Listening for "hey Jarvis"…' : null}
+            </p>
+          )}
+          {wakeDiagnosticsEnabled && (
+            <p className="app__wake-debug" data-testid="wake-debug">
+              wake score: {formatWakeDiagnosticValue(wakeDiagnostics.score)} · max:{' '}
+              {formatWakeDiagnosticValue(wakeDiagnostics.max)}
+              {wakeDiagnostics.error && ` · last error: ${wakeDiagnostics.error}`}
+            </p>
+          )}
+
+          <Controls
+            status={session.status}
+            micEnabled={session.micEnabled}
+            onJoin={handleJoin}
+            onLeave={() => void session.leave()}
+            onToggleMic={() => void session.toggleMic()}
           />
-          Passive listening (say "hey Jarvis")
-        </label>
-        {!wakeAvailable && (
-          <p className="app__passive-note" data-testid="passive-unavailable">
-            Passive listening is unavailable in this browser — it needs WebAssembly and
-            microphone access support, which weren&apos;t both detected here.
-          </p>
-        )}
-        {passiveError && (
-          <p className="app__error" role="alert" data-testid="passive-error">
-            {passiveError}
-          </p>
-        )}
-        {passiveModeEnabled && (
-          <p className="app__passive-state" data-testid="passive-state">
-            {passiveState === 'passive' ? 'Listening for "hey Jarvis"…' : null}
-          </p>
-        )}
-        {wakeDiagnosticsEnabled && (
-          <p className="app__wake-debug" data-testid="wake-debug">
-            wake score: {formatWakeDiagnosticValue(wakeDiagnostics.score)} · max:{' '}
-            {formatWakeDiagnosticValue(wakeDiagnostics.max)}
-            {wakeDiagnostics.error && ` · last error: ${wakeDiagnostics.error}`}
-          </p>
-        )}
-
-        <Controls
-          status={session.status}
-          micEnabled={session.micEnabled}
-          onJoin={handleJoin}
-          onLeave={() => void session.leave()}
-          onToggleMic={() => void session.toggleMic()}
-        />
-      </footer>
-    </div>
+        </footer>
+      </div>
+    </>
   )
 }

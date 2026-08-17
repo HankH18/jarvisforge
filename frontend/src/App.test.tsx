@@ -28,6 +28,20 @@ function fakeSignedInAuth(): AuthState {
   };
 }
 
+/** A signed-out AuthState double -- Clerk configured, no session -- the
+ * state in which SignInPanel actually mounts its <SignIn/> widget and the
+ * modal sign-in overlay (App.tsx) is expected to be showing. */
+function fakeSignedOutAuth(): AuthState {
+  return {
+    status: "signed-out",
+    userLabel: null,
+    getToken: async () => null,
+    signOut: async () => {},
+    mountSignIn: () => {},
+    unmountSignIn: () => {},
+  };
+}
+
 describe("App", () => {
   it("joins a room, renders live agent state and transcript, then leaves", async () => {
     const session = createFakeSession();
@@ -376,6 +390,77 @@ describe("App", () => {
         expect(order).toEqual(["session.disconnect", "auth.signOut"]);
       });
     });
+  });
+});
+
+describe("App: sign-in overlay (Clerk gate)", () => {
+  it("renders a centered modal overlay, with the app content hidden from assistive tech, when Clerk is configured and the user is signed out", async () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signed-out" }}
+        auth={{ useAuth: fakeSignedOutAuth }}
+      />,
+    );
+
+    // The overlay itself, and a real modal dialog with an accessible name --
+    // not just CSS that happens to look like one.
+    expect(screen.getByTestId("auth-overlay")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Sign in to Jarvis" })).toBeInTheDocument();
+
+    // The app content behind it is marked hidden from assistive tech (and,
+    // via `inert`, out of the tab order too) while the overlay is up --
+    // `getByRole` queries, like a screen reader, skip aria-hidden subtrees,
+    // so the header title and Join button behind the modal are unreachable
+    // through the accessible tree even though the DOM nodes still exist.
+    const appContent = screen.getByTestId("app-content");
+    expect(appContent).toHaveAttribute("aria-hidden", "true");
+    expect(appContent).toHaveAttribute("inert");
+    expect(screen.queryByRole("heading", { name: "Jarvis" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Join room" })).not.toBeInTheDocument();
+  });
+
+  it("does not render the overlay when Clerk is unconfigured (anonymous single-user mode is unchanged)", async () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    // No auth override -- the real useClerkAuth hook runs, which resolves
+    // to 'unavailable' in this test environment (no VITE_CLERK_PUBLISHABLE_KEY).
+    render(
+      <App session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-anon-overlay" }} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-unavailable")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("auth-overlay")).not.toBeInTheDocument();
+    const appContent = screen.getByTestId("app-content");
+    expect(appContent).not.toHaveAttribute("aria-hidden");
+    expect(appContent).not.toHaveAttribute("inert");
+    // The app is fully usable: the title and Join button are reachable.
+    expect(screen.getByRole("heading", { name: "Jarvis" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Join room" })).toBeInTheDocument();
+  });
+
+  it("does not render the overlay once signed in -- the app renders normally", () => {
+    const session = createFakeSession();
+    const tokenFn = fakeFetchToken({ token: "tok", url: "wss://jarvis.test/rtc" });
+
+    render(
+      <App
+        session={{ createSession: () => session, fetchToken: tokenFn, identity: "web-signed-in-overlay" }}
+        auth={{ useAuth: fakeSignedInAuth }}
+      />,
+    );
+
+    expect(screen.queryByTestId("auth-overlay")).not.toBeInTheDocument();
+    const appContent = screen.getByTestId("app-content");
+    expect(appContent).not.toHaveAttribute("aria-hidden");
+    expect(appContent).not.toHaveAttribute("inert");
+    expect(screen.getByRole("heading", { name: "Jarvis" })).toBeInTheDocument();
   });
 });
 

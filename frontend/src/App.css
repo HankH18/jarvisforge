@@ -85,6 +85,57 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* ---- Sign-in overlay (Clerk gate) ----
+   Shown only while auth.status === 'signed-out' -- the moment Clerk's real
+   <SignIn/> widget is mounted (see App.tsx / SignInPanel.tsx). Full-
+   viewport and OPAQUE, not blurred: a blur still leaves the console's
+   shapes, colour and motion legible through it, which fails "hidden" --
+   there is nothing usable behind the gate anyway (Clerk configured + signed
+   out), so a solid backdrop reads as a deliberate, self-contained gate
+   rather than a widget dropped on top of a half-visible page. It reuses
+   --bg (the page's own background) so the transition in feels seamless --
+   the console doesn't visibly vanish, the modal just appears on the same
+   background it was always sitting on. */
+
+.app__auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 32px);
+  background: var(--bg);
+}
+
+.app__auth-modal {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: clamp(24px, 5vw, 36px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  text-align: center;
+}
+
+.app__auth-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* The mounted Clerk <SignIn/> widget (SignInPanel's .app__auth,
+   data-testid="auth-sign-in") should fill the card's width rather than
+   sizing to its own (often narrow) intrinsic content. */
+.app__auth-modal .app__auth {
+  width: 100%;
+}
+
 /* ---- Agent state indicator ----
    Four states, differentiated by shape + motion, never by colour alone --
    the visible label text is the primary, always-present differentiator.
