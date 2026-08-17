@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run_evidence_tests.sh (T-34) - tests scripts/check_evidence_staleness.sh
-# (the live evidence-freshness gate, stage [1/5] of scripts/verify_submission.sh)
+# (the live evidence-freshness gate, stage [1/4] of scripts/verify_submission.sh)
 # against BOTH receipt formats it now reads.
 #
 # LINEAGE: this suite replaces .claude/hooks/tests/run_evidence_tests.sh,
@@ -320,7 +320,7 @@ RESTORED_OUT4="$(run_check)"
 assert_match "restoring evidence_fingerprint.sh -> T-9201 reads CURRENT again (2)" "$RESTORED_OUT4" '^CURRENT +T-9201: .*\(pass\)'
 
 # ===========================================================================
-# verify_submission.sh (stage [1/5]) actually fails when this gate fails.
+# verify_submission.sh (stage [1/4]) actually fails when this gate fails.
 # Drives the REAL check under test via the sandbox's own copy of
 # verify_submission.sh (which shells out to its own sandbox-local
 # check_evidence_staleness.sh, exactly as the real one shells out to its
@@ -328,7 +328,7 @@ assert_match "restoring evidence_fingerprint.sh -> T-9201 reads CURRENT again (2
 # ===========================================================================
 SUBMIT_OUT="$(bash "$SUBMIT" "$SANDBOX" 2>&1)"; SUBMIT_RC=$?
 if [ "$SUBMIT_RC" -ne 0 ]; then pass "verify_submission.sh exits non-zero when the evidence gate fails"; else fail "verify_submission.sh exits non-zero when the evidence gate fails" "exit 0: $SUBMIT_OUT"; fi
-assert_match "verify_submission.sh names stage [1/5] as the failure" "$SUBMIT_OUT" '\[1/5\] evidence freshness gate'
+assert_match "verify_submission.sh names stage [1/4] as the failure" "$SUBMIT_OUT" '\[1/4\] evidence freshness gate'
 assert_match "verify_submission.sh's own FAILED message for stage 1" "$SUBMIT_OUT" 'FAILED -- stale or unverifiable ticket evidence exists'
 
 echo

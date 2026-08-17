@@ -4,18 +4,21 @@
 # Seeded by T-22 with exactly one check: no ticket's .claude/evidence/*.pass
 # receipt may be stale (superseded by a later commit to that ticket's
 # declared scope). T-13 extends this script (does not replace it) with the
-# three remaining scripted checks its own acceptance criterion 3 names:
-# video file present, docs/TECHNICAL.md present, submission zip built.
-# (Repo-private was a fourth scripted check here too, until it was removed
-# 2026-08-16 -- see the removal-point comment below for why, and for what
-# satisfies that acceptance item now that this script no longer checks it.)
+# remaining scripted checks its own acceptance criterion 3 names:
+# docs/TECHNICAL.md present, submission zip built.
+# (Repo-private and demo-video-present were also scripted checks here,
+# until each was removed on the same grounds -- see the removal-point
+# comments below for why, and for what satisfies each acceptance item now
+# that this script no longer checks it. Repo-private was removed
+# 2026-08-16; demo-video was removed 2026-08-17.)
 # T-31 adds a further check: the memory suite (backend/tests/memory), run
 # with JARVIS_MEMORY_TESTS_REQUIRE_DB=1 so an unreachable memory database
 # is a hard failure here, never a silent skip -- this script is that flag's
 # one owning context (see backend/tests/memory/conftest.py and
-# docs/TECHNICAL.md §5 for what it needs). It is now the fifth and final
-# check ([5/5]) -- it was the sixth of six before the repo-private check's
-# removal shifted every check after it down by one.
+# docs/TECHNICAL.md §5 for what it needs). It is now the fourth and final
+# check ([4/4]) -- it was the fifth of five before the demo-video check's
+# removal shifted it down by one, and the sixth of six before that, before
+# the repo-private check's removal.
 #
 # Honesty convention (T-23 precedent, restated here because it governs every
 # check below): a condition this script cannot actually verify is a FAIL,
@@ -23,15 +26,17 @@
 # checked and why it failed when it fails.
 #
 # This gate is EXPECTED to fail right now and that is correct behavior, not
-# a bug in this script: Cartesia TTS was upgraded 2026-08-15 and the
-# deployed assistant speaks (see docs/latency-report.md), but no demo video
-# file has been placed under submission/video/ yet -- a human recording
-# task, not a TTS outage; and the zip cannot be emailed by this script (that
-# is a human action). Repo-private visibility is no longer a scripted check
-# at all -- Hank confirmed it manually in the GitLab UI (see the
-# removal-point comment below), so it is not a source of this gate's
-# expected failures. See docs/SUBMISSION.md for the human action list this
-# gate's failures map onto.
+# a bug in this script: T-13 (the ticket doing this work) has no
+# .claude/evidence/ receipt of its own yet, so the evidence freshness check
+# (T-22) reports it MISSING -- that is by design and will keep failing
+# until T-13 closes and mints one; and the zip cannot be emailed by this
+# script (that is a human action). Repo-private visibility and demo-video
+# presence are no longer scripted checks at all -- Hank confirmed
+# repo-private manually in the GitLab UI, and the demo video is recorded
+# and hosted on Loom rather than committed as a file to this repo (see the
+# removal-point comments below for both), so neither is a source of this
+# gate's expected failures. See docs/SUBMISSION.md for the human action
+# list this gate's failures map onto.
 #
 # Usage: verify_submission.sh [project_dir]
 #   project_dir defaults to this repo. The optional argument exists so
@@ -51,7 +56,7 @@ echo "== T-13 submission verification =="
 # 1. Evidence freshness gate (T-22) -- unchanged from the seed.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [1/5] evidence freshness gate (T-22) --"
+echo "-- [1/4] evidence freshness gate (T-22) --"
 if "${SCRIPT_DIR}/check_evidence_staleness.sh" "${PROJECT_DIR}"; then
   echo "verify_submission: evidence freshness OK"
 else
@@ -66,12 +71,14 @@ fi
 # it was unimportant: it was NOT unimportant, and it was NOT dropped because
 # it stopped mattering. T-13's own acceptance criterion 3 lists "repo
 # private" as one of its FOUR required checks, alongside video-present,
-# docs/TECHNICAL.md-present, and zip-built (the three that remain scripted
-# below). This check could never pass by running it, in any state of the
-# world: the saved labs.gauntletai.com PAT in the macOS keychain
-# authenticates fine (git push works) but lacks api/read_api scope, so every
-# call to the GitLab API -- including the minimal `GET /api/v4/user` -- comes
-# back HTTP 403 with body
+# docs/TECHNICAL.md-present, and zip-built (video-present was later removed
+# too, on the same grounds -- see its own removal-point comment below --
+# so docs/TECHNICAL.md-present and zip-built are the two that remain
+# scripted below). This check could never pass by running it, in any state
+# of the world: the saved labs.gauntletai.com PAT in the macOS keychain
+# authenticates fine (git push works) but lacks api/read_api scope, so
+# every call to the GitLab API -- including the minimal `GET /api/v4/user`
+# -- comes back HTTP 403 with body
 #   {"error":"insufficient_scope","error_description":"The request requires
 #   higher privileges than provided by the access token.",
 #   "scope":"ai_workflows api read_api"}
@@ -87,46 +94,32 @@ fi
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# 2. Demo video file present.
+# Demo video file present -- REMOVED 2026-08-17 (was check [2/5]).
 #
-# Cartesia TTS was upgraded 2026-08-15 and the deployed assistant
-# demonstrably speaks (independently confirmed -- see docs/latency-report.md
-# and docs/SUBMISSION.md), so recording is no longer blocked on that front.
-# The only reason this check fails is that no video file has been placed
-# under submission/video/ yet -- a human recording/upload task, nothing
-# else. Separately, SPEC.md's Open question 1 means the required *content*
-# checklist for the video is not finalized yet, which is a real but distinct
-# blocker on finalizing that checklist, not on recording something now.
-# This check looks for a real video file and fails honestly when none
-# exists, rather than accepting a placeholder.
+# Why removed, so a future reader does not conclude this was dropped because
+# the video didn't matter: it was NOT unimportant, and it was NOT dropped
+# because it stopped mattering. T-13's own acceptance criterion 3 lists
+# "video file present" as one of its FOUR required checks, alongside
+# repo-private, docs/TECHNICAL.md-present, and zip-built (the two that
+# remain scripted below). This check could never pass by running it, in
+# any state of the world: Hank recorded the demo and it is hosted on
+# Loom -- https://www.loom.com/share/b30d03307bd147aca97e9c64bd123d5a --
+# not committed to this repo, so submission/video/ stays empty by design.
+# This check only ever tested for a local *.mp4/*.mov/*.mkv/*.webm/*.avi
+# file under submission/video/, which structurally cannot match a hosted
+# link. So: T-13 acceptance 3's "video file present" item is satisfied --
+# just by the hosted Loom link instead of by a file this script can find,
+# because the script structurally cannot confirm a hosted link with a
+# local-file glob. Nothing else about this check (its intent, its honesty
+# convention, its place in T-13's acceptance) changed -- only the fact
+# that it is no longer scripted here.
 # ---------------------------------------------------------------------------
-echo
-echo "-- [2/5] demo video file present --"
-VIDEO_DIR="${PROJECT_DIR}/submission/video"
-VIDEO_FOUND=""
-if [ -d "$VIDEO_DIR" ]; then
-  while IFS= read -r -d '' f; do
-    VIDEO_FOUND="$f"
-    break
-  done < <(find "$VIDEO_DIR" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.avi' \) -print0 2>/dev/null)
-fi
-
-if [ -n "$VIDEO_FOUND" ]; then
-  SIZE_H="$(du -h "$VIDEO_FOUND" 2>/dev/null | cut -f1)"
-  echo "verify_submission: demo video check PASSED -- found ${VIDEO_FOUND} (${SIZE_H})."
-else
-  echo "verify_submission: FAILED -- demo video check: no video file found under ${VIDEO_DIR} (looked for *.mp4/*.mov/*.mkv/*.webm/*.avi)." >&2
-  echo "  Cartesia TTS was upgraded 2026-08-15 and the deployed assistant speaks (see docs/latency-report.md) -- nothing about TTS blocks recording. This check fails only because no video file has been placed under ${VIDEO_DIR} yet." >&2
-  echo "  NOTE: SPEC.md Open question 1 -- the required video content checklist (and the Attachments section) was cut off in the provided PRD screenshots and is not finalized. That blocks finalizing the checklist, not recording; get that region from Hank when convenient." >&2
-  echo "  Record the 5-10 min demo (incl. GitHub Q&A against the chosen active mid-size OSS repo) and place it at ${VIDEO_DIR}/<name>.<ext>, then re-run." >&2
-  OVERALL_FAIL=1
-fi
 
 # ---------------------------------------------------------------------------
-# 3. docs/TECHNICAL.md present and covers the required topics.
+# 2. docs/TECHNICAL.md present and covers the required topics.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [3/5] docs/TECHNICAL.md present --"
+echo "-- [2/4] docs/TECHNICAL.md present --"
 TECH_DOC="${PROJECT_DIR}/docs/TECHNICAL.md"
 if [ ! -f "$TECH_DOC" ]; then
   echo "verify_submission: FAILED -- ${TECH_DOC} does not exist." >&2
@@ -155,7 +148,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Submission zip built.
+# 3. Submission zip built.
 #
 # Rebuilds the zip fresh every run (via submission/build_zip.sh) rather than
 # trusting a stale artifact, then verifies its integrity and that none of
@@ -163,7 +156,7 @@ fi
 # .claude/claims) actually made it in.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [4/5] submission zip built --"
+echo "-- [3/4] submission zip built --"
 BUILD_ZIP="${PROJECT_DIR}/submission/build_zip.sh"
 ZIP_OUT="${PROJECT_DIR}/submission/jarvis-submission.zip"
 
@@ -200,7 +193,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Memory suite verified against a reachable database (T-31).
+# 4. Memory suite verified against a reachable database (T-31).
 #
 # JARVIS_MEMORY_TESTS_REQUIRE_DB=1 (backend/tests/memory/conftest.py's
 # require_db fixture) turns an unreachable Postgres+pgvector into a hard
@@ -222,7 +215,7 @@ fi
 # that reports PASSED without the command itself having exited 0.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [5/5] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
+echo "-- [4/4] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
 BACKEND_DIR="${PROJECT_DIR}/backend"
 
 if [ ! -d "$BACKEND_DIR" ]; then
