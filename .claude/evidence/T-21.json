@@ -1,9 +1,0 @@
-{
- "ticket": "T-21",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "bash scripts/tests/run_claim_tests.sh",
- "commit": "fdfea45f3879be96b0e89559bb4bafd665378788",
- "fingerprint": "703cef2b941a91d53f9f40ff828964018c2ebdf44f8400dbe2f63260888b16f7",
- "attempts": 0,
- "ts": 1786948486
-}
