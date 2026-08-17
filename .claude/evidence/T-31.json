@@ -1,0 +1,9 @@
+{
+ "ticket": "T-31",
+ "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
+ "verify": "(cd backend && uv run pytest tests/memory -q) && bash scripts/tests/run_require_db_wiring_tests.sh",
+ "commit": "48dfb14077b062ebdb557bf524771325d2ac9d71",
+ "fingerprint": "1640618a6c70529d08496b47047bfb84e29d34f2246333e2d726a3e44cd0846e",
+ "attempts": 0,
+ "ts": 1786949948
+}
