@@ -55,3 +55,11 @@ submission/*.zip
 # submission zip -- see docs/latency-report.md for where the durable,
 # committed measurement history actually lives.
 var/
+
+# --- Internal working notes: never ship to graders ---
+# Removed from the repo 2026-08-17. The harness recreates NEEDS_HUMAN.md on
+# `claim.sh release`, and the watchdog rewrites .claude/monitor/, so these are
+# ignored rather than merely deleted.
+.claude/NEEDS_HUMAN.md
+.claude/monitor/
+.claude/watchdog/
