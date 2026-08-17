@@ -9,8 +9,13 @@
 #
 # Checks:
 #   a. GET  /healthz     -> HTTP 200
-#   b. POST /api/token   -> HTTP 200, JSON body with non-empty string "token"
-#                           (3 dot-separated JWT segments) and "url" (starts "ws")
+#   b. POST /api/token   -> HTTP 200 with a valid room-grant token when the
+#                           deployment is in Clerk's ANONYMOUS mode, or HTTP
+#                           401 naming the Clerk gate when it is in
+#                           AUTHENTICATED mode (CLERK_SECRET_KEY /
+#                           CLERK_JWT_KEY set) - see the check's own comment
+#                           below for why both are PASS, and what a 401 pass
+#                           here does and does not prove.
 #   c. worker liveness via `flyctl machine list` - proves the worker process
 #      group is actually SERVING, not merely present: it must have a machine
 #      in state "started" with no recent crash/restart in its Fly event
@@ -80,6 +85,48 @@ rm -f "${healthz_body_file}.err"
 
 # ---------------------------------------------------------------------------
 # b. POST /api/token
+#
+# T-35 (post-Clerk-enablement, 2026-08-14): CLERK_SECRET_KEY is now a Fly
+# secret on the live deployment, so backend/src/jarvis/auth/clerk.py's
+# clerk_auth_enabled() is true there and resolve_identity() 401s any request
+# with no verified Clerk bearer token (see that module's docstring, and its
+# _bearer_token() specifically). This check still sends the exact same
+# unauthenticated request every prior version of this script sent (no
+# Authorization header) and now branches on the response, because 401 and
+# 200 are BOTH legitimate outcomes -- which one is correct depends on which
+# of Clerk's two documented deployment modes is actually live:
+#
+#   * 401 -> AUTHENTICATED mode (CLERK_SECRET_KEY or CLERK_JWT_KEY set).
+#     This is the desired, correct behavior for a Clerk-gated deployment and
+#     is asserted as a PASS, not merely tolerated -- the alternative (an
+#     unauthenticated caller getting a working room grant) is exactly the
+#     anonymous-mode contract this deployment ran under for most of the
+#     project's life, and a silent regression back to it would otherwise go
+#     unnoticed by this script. Only a 401 that names the specific reason
+#     _bearer_token() raises for a header-less request ("missing
+#     Authorization header") counts as the Clerk gate firing -- some
+#     UNRELATED 401 (a misrouted proxy, unrelated middleware) must not be
+#     mistaken for it.
+#
+#     LIMIT, stated plainly rather than implied: this check carries no Clerk
+#     credential, so it can only prove the gate REJECTS an unauthenticated
+#     caller. It cannot prove the authenticated path itself works
+#     end-to-end -- that a valid Clerk session token actually mints a usable
+#     LiveKit grant -- which would require a live human sign-in or a
+#     scripted Clerk test token, neither available to this offline script.
+#     The PASS message says this explicitly so a green run here is never
+#     mistaken for full coverage of the token-minting path.
+#
+#   * 200 -> ANONYMOUS mode (neither CLERK_SECRET_KEY nor CLERK_JWT_KEY
+#     set). Also a legitimate, supported deployment mode (see clerk.py's
+#     module docstring) -- not itself a failure. Runs the full pre-existing
+#     shape + decoded-grant check below, unchanged: that check still needs
+#     to prove the token actually works, not just that the endpoint
+#     answered, and anonymous mode is exactly the path it was written for.
+#
+#   * anything else (000, 403, 500, a 401 whose body doesn't name the Clerk
+#     gate, ...) -> fail. Neither of Clerk's two documented modes produces
+#     this, so it is unconditionally wrong, not a silent pass.
 # ---------------------------------------------------------------------------
 token_body_file="$(mktemp)"
 SMOKE_IDENTITY="smoke-$$"
@@ -92,7 +139,16 @@ if ! token_status="$(curl -sS --max-time 10 -o "$token_body_file" -w '%{http_cod
     token_status="000"
 fi
 
-if [ "$token_status" != "200" ]; then
+if [ "$token_status" = "401" ]; then
+    token_json="$(cat "$token_body_file")"
+    detail_val="$(printf '%s' "$token_json" | grep -o '"detail"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/' || true)"
+
+    if [ "$detail_val" = "missing Authorization header" ]; then
+        pass "POST /api/token returned 401 (missing Authorization header) -- Clerk auth is enabled and the endpoint correctly rejects an unauthenticated caller. LIMIT: this proves the gate rejects anonymous requests; it does NOT verify that a valid Clerk session token succeeds (this script holds no Clerk credentials)."
+    else
+        fail "POST /api/token returned 401 but not for the expected Clerk-gate reason (detail: \"${detail_val:-<none>}\"; body: $(head -c 200 "$token_body_file")) -- this may be a different failure behind a 401, not confirmed Clerk auth-gating"
+    fi
+elif [ "$token_status" != "200" ]; then
     curl_err=""
     if [ -s "${token_body_file}.err" ]; then
         curl_err=" ($(tr -d '\n' < "${token_body_file}.err"))"
@@ -100,7 +156,7 @@ if [ "$token_status" != "200" ]; then
     if [ "$token_status" = "000" ]; then
         fail "POST /api/token - request failed (connection refused or timed out)${curl_err}"
     else
-        fail "POST /api/token returned ${token_status}, expected 200 (body: $(head -c 200 "$token_body_file"))"
+        fail "POST /api/token returned ${token_status}, expected 200 (anonymous mode) or 401 (Clerk-gated mode) (body: $(head -c 200 "$token_body_file"))"
     fi
 else
     token_json="$(cat "$token_body_file")"
