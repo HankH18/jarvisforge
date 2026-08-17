@@ -1,9 +1,0 @@
-{
- "ticket": "T-20",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "bash scripts/tests/run_scope_guard_tests.sh",
- "commit": "d079538eb9faf5209a3ed7c2c294f090943ce69c",
- "fingerprint": "4482d7aa024caf1223d0551144f749c592559c2818f661951f004ad35cb22f0b",
- "attempts": 0,
- "ts": 1786837630
-}
