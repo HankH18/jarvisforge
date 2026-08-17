@@ -1,9 +1,0 @@
-{
- "ticket": "T-28",
- "session": "cced6b0e-a6e6-4fcb-bbf9-ff0fc7970cef",
- "verify": "bash scripts/tests/run_verify_lint_tests.sh",
- "commit": "e4e3b2381aca04c9b6361132596f3b00793f585b",
- "fingerprint": "b45989e44acabf4cce50b25527eaa3bddcdfa4eccf7439c5a22220f05e6b0da7",
- "attempts": 0,
- "ts": 1786837731
-}
