@@ -46,13 +46,21 @@ import {
  * openWakeWordDetector.ts's windowing math regresses (wrong slice, wrong
  * stride, wrong count), the wake session either receives the wrong shape
  * (caught by the dims assertion below) or `run()` never gets reached with
- * enough data at all. */
-function makeFakeSessions(wakeScore: () => number) {
+ * enough data at all.
+ *
+ * `melspecValue` (default 0, matching every existing call site's
+ * expectations) controls what raw value the fake melspectrogram.onnx fills
+ * its output tensor with -- lets a test pin the MELSPEC_TRANSFORM_DIVISOR/
+ * _OFFSET transform (spec/10 + 2) that openWakeWordDetector.ts must apply
+ * to that raw output before it reaches embedding_model.onnx (see
+ * getLastEmbeddingFeedData below). */
+function makeFakeSessions(wakeScore: () => number, melspecValue: () => number = () => 0) {
   let melspecCalls = 0
   let embeddingCalls = 0
   let wakeCalls = 0
   let lastWakeFeedDims: readonly number[] | null = null
   let lastMelspecFeedData: ArrayLike<number> | null = null
+  let lastEmbeddingFeedData: ArrayLike<number> | null = null
 
   const melspec: OrtSessionLike = {
     inputNames: ['input'],
@@ -62,7 +70,8 @@ function makeFakeSessions(wakeScore: () => number) {
       lastMelspecFeedData = feeds.input.data
       const samples = feeds.input.dims[1]
       const frames = Math.floor(samples / 160) - 3
-      return { output: { data: new Float32Array(frames * 32), dims: [1, 1, frames, 32] } }
+      const data = new Float32Array(frames * 32).fill(melspecValue())
+      return { output: { data, dims: [1, 1, frames, 32] } }
     },
   }
 
@@ -71,6 +80,7 @@ function makeFakeSessions(wakeScore: () => number) {
     outputNames: ['conv2d_19'],
     async run(feeds): Promise<Record<string, OrtTensorLike>> {
       embeddingCalls += 1
+      lastEmbeddingFeedData = feeds.input_1.data
       const n = feeds.input_1.dims[0]
       return { conv2d_19: { data: new Float32Array(n * 96), dims: [n, 1, 1, 96] } }
     },
@@ -98,6 +108,7 @@ function makeFakeSessions(wakeScore: () => number) {
     getCalls: () => ({ melspecCalls, embeddingCalls, wakeCalls }),
     getLastWakeFeedDims: () => lastWakeFeedDims,
     getLastMelspecFeedData: () => lastMelspecFeedData,
+    getLastEmbeddingFeedData: () => lastEmbeddingFeedData,
   }
 }
 
@@ -208,6 +219,40 @@ describe('createOpenWakeWordDetectorWithDeps', () => {
     // entirely (the unscaled Web Audio value at index 0 would be 1, not
     // ~32767).
     expect(Math.abs(fed[0])).toBeGreaterThan(1000)
+  })
+
+  it("applies openWakeWord's melspectrogram transform (spec/10 + 2) before feeding it to embedding_model.onnx", async () => {
+    // Pins MELSPEC_TRANSFORM_DIVISOR/_OFFSET in openWakeWordDetector.ts
+    // (see that constant's header comment for the upstream evidence this is
+    // based on: openwakeword/utils.py's AudioFeatures._get_melspectrogram
+    // applies `spec/10 + 2` to melspectrogram.onnx's raw output -- its own
+    // comment calls it "Arbitrary transform of melspectrogram" -- before
+    // that output is ever windowed for embedding_model.onnx). The fake
+    // melspectrogram session here fills its entire raw output with a known
+    // value (5); if openWakeWordDetector.ts skips the transform, the
+    // embedding model would receive that raw 5 unchanged instead of
+    // 5/10 + 2 = 2.5.
+    const RAW_MELSPEC_VALUE = 5
+    const { sessions, getLastEmbeddingFeedData } = makeFakeSessions(() => 0, () => RAW_MELSPEC_VALUE)
+    const { startCapture, feed } = makeFakeCapture()
+    const detector = createOpenWakeWordDetectorWithDeps({ loadSessions: async () => sessions, startCapture })
+
+    await detector.start(() => {})
+    feed(new Float32Array(SAMPLES_NEEDED))
+    await flush()
+
+    const data = getLastEmbeddingFeedData()
+    expect(data).not.toBeNull()
+    const fed = data as ArrayLike<number>
+    expect(fed.length).toBeGreaterThan(0)
+
+    const expected = RAW_MELSPEC_VALUE / 10 + 2
+    for (let i = 0; i < fed.length; i += 1) {
+      expect(fed[i]).toBeCloseTo(expected, 5)
+    }
+    // Guards against a regression that silently drops the transform
+    // entirely (the untransformed raw value at index 0 would be 5, not 2.5).
+    expect(fed[0]).not.toBeCloseTo(RAW_MELSPEC_VALUE, 5)
   })
 
   it('does not invoke onWake when the score stays below WAKE_THRESHOLD', async () => {

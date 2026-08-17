@@ -30,6 +30,10 @@
 //                       -> [1, 1, frames, 32]   (frames = samples/160 - 3;
 //                          160-sample/10ms hop, 3 border frames the model
 //                          itself trims)
+//                          -- raw output is NOT what embedding_model.onnx
+//                          consumes: upstream applies spec/10 + 2 to it
+//                          first (see MELSPEC_TRANSFORM_DIVISOR/_OFFSET
+//                          below), applied here before windowing
 //   embedding_model.onnx  [N, 76, 32, 1] float32
 //                       -> [N, 1, 1, 96]   (N windows of 76 consecutive mel
 //                          frames -> one 96-dim embedding per window)
@@ -271,6 +275,36 @@ const DIAG_LOG_INTERVAL_MS = 250
  * normal in-range samples pass through the clamp untouched. */
 const WEB_AUDIO_TO_INT16_SCALE = 32767
 
+/** openWakeWord applies an explicit post-processing transform to
+ * melspectrogram.onnx's raw output before that output is ever used --
+ * whether by the streaming path or the non-streaming predict_clip/
+ * embed_clips path this file mirrors (see the buffering-strategy note in
+ * this file's header). Independently re-derived against the exact
+ * vendored release (v0.5.1), not assumed:
+ *   - openwakeword/utils.py's `AudioFeatures._get_melspectrogram` takes a
+ *     `melspec_transform: Callable` parameter defaulting to exactly
+ *     `lambda x: x/10 + 2`, applied via `spec = melspec_transform(spec)`
+ *     immediately after `spec = np.squeeze(outputs[0])` (the ONNX model's
+ *     raw output) and before `_get_melspectrogram` returns -- upstream's
+ *     own comment on that line reads "Arbitrary transform of
+ *     melspectrogram".
+ *   - Nothing overrides that default anywhere in the streaming
+ *     (`_streaming_melspectrogram`) or batch (`_get_melspectrogram_batch`,
+ *     `embed_clips`) call paths, so every consumer of a melspectrogram --
+ *     including the 76-frame windows handed to embedding_model.onnx --
+ *     sees the transformed values, never the raw ONNX output.
+ * Without this transform, embedding_model.onnx (itself trained exclusively
+ * on transformed input) receives melspectrogram frames on the wrong scale
+ * and offset -- not silence like the int16 bug above, but a systematically
+ * wrong domain, which depresses the wake score without eliminating
+ * detection: exactly the "recognizes the phrase, badly under-confident"
+ * signature this constant was added to fix. Applied ONLY to
+ * melspectrogram.onnx's output, once, right before it's windowed for
+ * embedding_model.onnx -- never to raw audio or to embeddings themselves,
+ * matching upstream's single application point. */
+const MELSPEC_TRANSFORM_DIVISOR = 10
+const MELSPEC_TRANSFORM_OFFSET = 2
+
 /** Runs the melspectrogram -> embedding -> wake chain over the trailing
  * SAMPLES_NEEDED samples of `buffer`. Returns the wake score, or `null` if
  * there isn't enough audio buffered yet to run a full pass (only happens
@@ -302,7 +336,11 @@ async function runDetectionPass(
     for (let f = 0; f < MEL_WINDOW_FRAMES; f += 1) {
       const srcFrame = frameOffset + f
       for (let b = 0; b < MEL_BINS; b += 1) {
-        windows[(w * MEL_WINDOW_FRAMES + f) * MEL_BINS + b] = melData[srcFrame * bins + b]
+        // See MELSPEC_TRANSFORM_DIVISOR/_OFFSET above -- upstream's
+        // `spec/10 + 2`, applied here to match _get_melspectrogram doing it
+        // before anything downstream (windowing included) sees the value.
+        windows[(w * MEL_WINDOW_FRAMES + f) * MEL_BINS + b] =
+          melData[srcFrame * bins + b] / MELSPEC_TRANSFORM_DIVISOR + MELSPEC_TRANSFORM_OFFSET
       }
     }
   }
