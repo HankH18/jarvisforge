@@ -5,21 +5,25 @@ Human-facing status and action list for closing out submission. Run
 expected to (and currently does) exit non-zero until the items in §2 below
 are done. That is correct behavior, not a bug in the script: several items
 are genuinely outside what an agent can do (sending email, a missing PRD
-region, recording the demo video, and confirming GitLab visibility — the
-saved token can push but has no API read scope; see §1 below).
+region, and recording the demo video; see §1 below).
 **Updated 2026-08-16**: the remote now exists and Cartesia is fixed — both
 used to be listed here as agent-unreachable blockers and no longer are.
+**Also updated 2026-08-16**: the repo-private *script check* is gone (see
+its own row in §1) — GitLab visibility is confirmed, just by Hank manually
+in the GitLab UI rather than by `verify_submission.sh`, because the saved
+token can push but has no `api`/`read_api` scope to read it back. That is
+no longer listed as an agent-unreachable blocker either; it is done.
 
 ## 1. Status, item by item
 
 | Item | Status | Detail |
 |---|---|---|
 | `docs/TECHNICAL.md` (architecture, stack rationale, known limits, AI-usage note) | **DONE** | Written against the code as it exists now; see the file for full detail, including an honest limits section. |
-| `scripts/verify_submission.sh` extended with the 4 acceptance-3 checks | **DONE** | Adds repo-private, video-present, TECHNICAL.md-present, zip-built to the existing T-22 evidence-freshness gate. Each check fails loudly with a reason when it can't be performed — none silently skip. **Update 2026-08-16**: T-31 (a later, unrelated ticket) added a 6th check, the memory suite — the script now reports `[1/6]`..`[6/6]`, not the `[1/5]`..`[5/5]` this row's own 4 checks would imply on their own. |
+| `scripts/verify_submission.sh` extended with the acceptance-3 checks | **DONE** | Originally added all 4 of acceptance 3's checks (repo-private, video-present, TECHNICAL.md-present, zip-built) to the existing T-22 evidence-freshness gate. Each check fails loudly with a reason when it can't be performed — none silently skip. **Update 2026-08-16 (a):** T-31 (a later, unrelated ticket) added a memory-suite check. **Update 2026-08-16 (b):** the repo-private check was removed from the script entirely (see the dedicated row below) — it could never pass with the scoped token available, and Hank confirmed visibility manually in the GitLab UI instead. Net effect of both updates: the script now scripts 3 of acceptance 3's 4 checks plus the memory suite, reporting `[1/5]`..`[5/5]`; repo-private is satisfied by human confirmation, not by a `[/5]` line. |
 | `submission/build_zip.sh` + a verified zip | **DONE (mechanism)** | Builds a fresh zip from an explicit file list (not a fragile glob), excludes `.env`, `.git`, `backend/.venv`, `frontend/node_modules`, `backend/var`, `.claude/claims`, `.claude/evidence`, `.claude/evidence-v1` (the old `.pass`-era receipts, superseded by `.claude/evidence`), `heartbeat.jsonl` (watchdog liveness pings, no reader value), `.codegraph`, caches, and `frontend/dist`. **Rebuilt and re-measured 2026-08-16: 284 files / ~4.6 MB** (`unzip -l submission/jarvis-submission.zip`), includes `docs/TECHNICAL.md`. The `250 files / ~1.6 MB` this row previously quoted is stale — rebuild-derived numbers move as the repo grows; treat this as a snapshot, not a pinned fact, and re-run `unzip -l` yourself before trusting a number here. Rebuilds every time `verify_submission.sh` runs, so it always reflects current repo state — including whatever ends up in `submission/video/` (see below). |
 | Acceptance 1 — video content checklist | **PLACEHOLDER, BLOCKED** | `docs/SPEC.md` §Open questions item 1: the required contents of the 5–10 min video and the Attachments section were cut off in the provided PRD screenshots. No checklist has been invented to fill this gap — that would defeat the point of a human-approved checklist. **Needs**: the missing PRD screenshot region from Hank. |
 | Demo video file | **UNBLOCKED 2026-08-15 — nothing prevents recording it now** | ~~Cartesia TTS returning HTTP 402~~ — **stale, and this row was the last thing saying otherwise.** Cartesia was upgraded on 2026-08-15 and the deployed assistant demonstrably speaks. Two corroborating pieces of evidence, both in `docs/latency-report.md`, precisely as recorded there (an earlier pass of this row overstated this as "8/8 driven turns completed", which the report does not actually support — corrected 2026-08-16): (1) the deployed worker (Fly app `jarvisforge` v8, `iad`) produced real synthesized audio with worker-side `latency.jsonl` records for **6 of 8** driven turns (the other 2: one lookup turn excluded by definition, one that logged no record at all); (2) a separate **local** run completed a full **3/3**-turn live LiveKit conversation end-to-end with real speech in and real synthesized audio out (`docs/first-live-conversation-2026-08-15.json`). TTS time-to-first-byte measured from inside the container: `sonic-3` median 162 ms. So a demo video of a working voice assistant is now possible; `submission/video/` is simply still empty (confirmed empty 2026-08-16). **Needs**: Hank to record it. Only the *content checklist* above remains genuinely blocked, on the missing PRD region — the recording itself is not. |
-| Repo-private confirmation | **BLOCKED — GitLab API returns HTTP 403 (write-only token), not "no remote"** | `git remote -v` now shows **two** remotes: `github` (`github.com/HankH18/jarvisforge`, personal backup only, not the submission target) and `gitlab` (`labs.gauntletai.com/hankholcomb/jarvisforge`, the real target) — both exist and `gitlab` has been pushed to. The "no remote exists" wording this row used to carry is stale as of whenever that remote was created; corrected 2026-08-16. The actual current blocker: `scripts/verify_submission.sh`'s repo-private check calls the GitLab API and gets **HTTP 403** for `GET /api/v4/projects/hankholcomb%2Fjarvisforge` (verified live 2026-08-16) — the saved PAT in the macOS keychain has `write_repository` (push works fine) but not `read_api`/`api` scope, so the visibility check itself cannot run; this is not evidence the repo is public, just that this script can't confirm either way. **Needs**: either mint/save a token with `read_api` scope, or confirm visibility manually in the GitLab UI (Settings → General → Visibility). |
+| Repo-private confirmation | **DONE — confirmed manually by Hank in the GitLab UI; script check removed 2026-08-16** | This was scripted as `verify_submission.sh` check `[2/6]`, calling the GitLab API (`GET /api/v4/projects/hankholcomb%2Fjarvisforge`). It could not pass by running it, in any state of the world: the saved PAT in the macOS keychain for `labs.gauntletai.com` authenticates fine (`git push` works) but lacks `api`/`read_api` scope, so **every** call to the GitLab API — including the minimal `GET /api/v4/user` — returns HTTP 403 with body `{"error":"insufficient_scope","error_description":"The request requires higher privileges than provided by the access token.","scope":"ai_workflows api read_api"}` (verified live 2026-08-16, not inferred). Minting a token with `read_api` scope is a human action this repo's rules don't ask an agent to do unprompted, so instead: **Hank has manually confirmed in the GitLab UI (Settings → General → Visibility) that the project is private.** Per his instruction, the check was then removed from `scripts/verify_submission.sh` entirely (comment + logic + helper variables), rather than left as a permanent, unfixable red line — see the removal-point comment at the top of that script for the full record. **This does not mean the item stopped mattering**: T-13's acceptance criterion 3 lists "repo private" as one of its four required checks, same as before; it is satisfied here by this row's human confirmation instead of by a script line. |
 | Zip emailed to both addresses | **BLOCKED — human action** | Sending email is explicitly the human's call; no agent sent anything, will send anything, or has been authorized to. **Needs**: Hank sends `submission/jarvis-submission.zip` to `wduffy@frontieraudio.com` and `pmoeckel@frontieraudio.com`. Sent-confirmation placeholder is in §3 below — leave it blank until it actually happens. |
 | Evidence-freshness gate (T-22, wraps `check_evidence_staleness.sh`) | **FAILING today, but this row's older "11 UNVERIFIABLE" wording was completely obsolete — corrected 2026-08-16** | The `.pass`-era receipts this row used to describe are gone. Every ticket's receipt is now a fingerprinted `.json` (`.claude/evidence/*.json`, 34 of them; `ls .claude/evidence/ \| wc -l` → 34), and `claim.sh status` genuinely reports the ledger at **34/35 resolved**. Running `bash scripts/check_evidence_staleness.sh .` today reports **20 STALE + 1 MISSING (`T-13`)**, cross-checked against `python3 .claude/monitor/check_fingerprint_drift.py` — every one of the 20 is tagged `DRIFT: SCOPE-OVERLAP` (a *later* commit touched a file inside that ticket's declared scope glob, not a regression in that ticket's own deliverable; the drift script's own footer: "design decision: fingerprint changed files, not the whole scope glob"). This is **expected, recurring noise**, not a queue of 20 things to fix — many tickets declare broad `docs/**`/`frontend/**` scopes, so it re-triggers on essentially every commit that touches those areas (this very edit will likely add `docs/SUBMISSION.md` to a few more tickets' drift lists). `MISSING: T-13` is the other failure, and it is **by design**: T-34's acceptance requires a receipt-less ticket to fail this gate loudly rather than be silently exempted, and T-13 (this submission ticket) cannot mint its own receipt until the submission actually happens — closing it is the literal last step of §2 below. **Needs**: nothing actionable today beyond finishing §2 and eventually closing T-13; do not chase the SCOPE-OVERLAP list, it is not a defect queue. |
 
@@ -38,29 +42,33 @@ used to be listed here as agent-unreachable blockers and no longer are.
    something to improvise here). **Still blocked as of 2026-08-16.**
 3. ~~Create/point the GitLab remote~~ **DONE** — both a `github` (backup)
    and a `gitlab` (`labs.gauntletai.com/hankholcomb/jarvisforge`, the real
-   target) remote now exist, and `gitlab` has been pushed to. What's left
-   is narrower than "create a remote": `scripts/verify_submission.sh`'s
-   repo-private check calls the GitLab API and gets **HTTP 403** (verified
-   live 2026-08-16) — the saved token can push (`write_repository`) but has
-   no `read_api`/`api` scope, so it cannot confirm `visibility: private`.
-   Either mint/save a token with `read_api` scope and re-run, or confirm
-   visibility manually in the GitLab UI (Settings → General → Visibility)
-   and treat that as sufficient.
+   target) remote now exist, and `gitlab` has been pushed to.
+   ~~Confirm repo-private via the GitLab API~~ **DONE, differently than
+   planned** — `scripts/verify_submission.sh`'s repo-private check got
+   **HTTP 403** every time (verified live 2026-08-16; the saved token can
+   push but has no `read_api`/`api` scope, so it structurally cannot read
+   visibility back). Rather than leave a permanently red, unfixable check
+   in the gate, Hank confirmed visibility manually in the GitLab UI
+   (Settings → General → Visibility: private) and had the check removed
+   from the script entirely — see the "Repo-private confirmation" row in
+   §1 above and the removal-point comment in the script itself. Nothing
+   left to do here.
 4. **Record the 5–10 min demo video**, including GitHub Q&A against the
    chosen active mid-size OSS repo, once step 2 is done (step 1, Cartesia,
    is no longer a blocker). Save it to `submission/video/<name>.mp4` (or
    `.mov`/`.mkv`/`.webm`/`.avi`) — the verify script looks there.
    `submission/video/` is confirmed still empty as of 2026-08-16.
-5. **Re-run `bash scripts/verify_submission.sh`.** It now reports 6 checks,
-   `[1/6]`–`[6/6]` (T-31 added a memory-suite check after this row was
-   originally written). As of 2026-08-16, `[4/6]` (TECHNICAL.md),
-   `[5/6]` (zip build), and `[6/6]` (memory suite) already pass on their
-   own; `[1/6]` (evidence freshness), `[2/6]` (repo-private), and `[3/6]`
-   (video present) are the three still failing, for the reasons in §1
-   above. Steps 2–4 close `[2/6]` and `[3/6]`; `[1/6]` is expected to keep
-   failing until `T-13` itself closes (see the evidence-freshness row in
-   §1) — do not treat a nonzero exit here as proof something is still
-   broken once 2–4 are done.
+5. **Re-run `bash scripts/verify_submission.sh`.** It now reports 5 checks,
+   `[1/5]`–`[5/5]` (T-31 added a memory-suite check after this row was
+   originally written; the repo-private check that used to be `[2/6]` was
+   removed 2026-08-16, see §1 above, which is why the total dropped from
+   6 to 5 rather than growing to 7). As of 2026-08-16, `[3/5]`
+   (TECHNICAL.md), `[4/5]` (zip build), and `[5/5]` (memory suite) already
+   pass on their own; `[1/5]` (evidence freshness) and `[2/5]` (video
+   present) are the two still failing, for the reasons in §1 above. Step 4
+   closes `[2/5]`; `[1/5]` is expected to keep failing until `T-13` itself
+   closes (see the evidence-freshness row in §1) — do not treat a nonzero
+   exit here as proof something is still broken once step 4 is done.
 6. ~~Re-run the 11 UNVERIFIABLE tickets' verify commands~~ **OBSOLETE —
    there is no "11 UNVERIFIABLE" list anymore.** That described the old
    `.pass`-era gate, which no longer exists (see the evidence-freshness row
@@ -71,7 +79,7 @@ used to be listed here as agent-unreachable blockers and no longer are.
    commands to re-run. Nothing to do here.
 7. **Rebuild the zip one last time right before sending**
    (`bash submission/build_zip.sh`, or just re-run
-   `verify_submission.sh`, which rebuilds it as part of check `[5/6]`) so it
+   `verify_submission.sh`, which rebuilds it as part of check `[4/5]`) so it
    captures the final state, including the video dropped into
    `submission/video/` in step 4.
 8. **Send `submission/jarvis-submission.zip`** to both

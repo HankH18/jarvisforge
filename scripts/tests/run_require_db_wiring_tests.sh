@@ -9,7 +9,7 @@
 # `pytest.fail()` instead of a loud-but-passing skip. Before T-31, nothing in
 # this repo ever set that flag, so the memory suite's integration layer
 # could silently never run while the exit code stayed 0. T-31 wires
-# scripts/verify_submission.sh's check `[6/6]` to set it. This harness
+# scripts/verify_submission.sh's check `[5/5]` to set it. This harness
 # proves that wiring actually binds -- not just that the string
 # "JARVIS_MEMORY_TESTS_REQUIRE_DB=1" appears somewhere in the file.
 #
@@ -21,8 +21,16 @@
 # project directory, rather than reimplementing verify_submission.sh's
 # logic here.
 #
+# NOTE 2026-08-16: verify_submission.sh's repo-private check (formerly
+# [2/6]) was removed from the script entirely at Hank's request (it could
+# never pass with the scoped token available; visibility was confirmed
+# manually in the GitLab UI instead -- see the removal-point comment in
+# verify_submission.sh and docs/SUBMISSION.md). That check's git-credential
+# and curl stubs below are gone with it, and every check after it shifted
+# down by one: [3/6]->[2/5], [4/6]->[3/5], [5/6]->[4/5], [6/6]->[5/5].
+#
 # WHAT IS STUBBED AND WHY:
-#   - `uv`: check [6/6] shells out to `cd backend && ... uv run pytest
+#   - `uv`: check [5/5] shells out to `cd backend && ... uv run pytest
 #     tests/memory -q`. This harness is about verify_submission.sh's OWN
 #     flag-wiring and exit-code plumbing (T-31 acceptance #2), not live DB
 #     connectivity or a real pytest run, so `uv` is stubbed to behave
@@ -38,30 +46,22 @@
 #         unreachable -- i.e. this test's RED/GREEN genuinely depends on
 #         verify_submission.sh setting the flag, not merely on the stub's
 #         own scripted responses.
-#   - `git`: only its `credential fill` subcommand is intercepted, so check
-#     [2/6] (repo-private confirmation) never touches the real macOS
-#     keychain or depends on which credential happens to be saved on this
-#     machine -- every other git invocation (`remote -v`, etc.) execs the
-#     real git untouched.
-#   - `curl`: only intercepts the GitLab `.../api/v4/projects/...` shape
-#     check [2/6] calls, answering with a synthetic `visibility: private`
-#     200 so that check passes deterministically, offline.
-# Checks [1/6], [3/6], [4/6], [5/6] are satisfied for real (no stubbing) by
+# Checks [1/5], [2/5], [3/5], [4/5] are satisfied for real (no stubbing) by
 # fixture files this harness writes into the sandbox project dir before
 # each run -- an empty docs/tickets.json + empty .claude/evidence/ (check
-# 1), a dummy video file (check 3), a docs/TECHNICAL.md covering the four
-# required topics (check 4), and a trivial submission/build_zip.sh fixture
-# (check 5, mirroring the real script's shape but not its exclude list,
+# 1), a dummy video file (check 2), a docs/TECHNICAL.md covering the four
+# required topics (check 3), and a trivial submission/build_zip.sh fixture
+# (check 4, mirroring the real script's shape but not its exclude list,
 # which is out of T-31's scope) -- so the sandbox's overall exit code is
 # driven ONLY by the memory check under test, in both directions.
 #
 # Two cases, each asserting an exact exit code AND the memory check's own
 # PASSED/FAILED line:
-#   1. db_unreachable -> [6/6] FAILS, verify_submission.sh exits non-zero
+#   1. db_unreachable -> [5/5] FAILS, verify_submission.sh exits non-zero
 #      (guaranteed regardless of the other checks: OVERALL_FAIL is
 #      monotonic in verify_submission.sh -- once any check sets it, the
 #      final exit code is non-zero no matter what else passed)
-#   2. db_reachable    -> [6/6] PASSES, and -- because every other check in
+#   2. db_reachable    -> [5/5] PASSES, and -- because every other check in
 #      the sandbox is independently satisfied by the fixtures above --
 #      verify_submission.sh exits 0
 #
@@ -86,27 +86,27 @@ CASES_RUN=0
 
 # ---------------------------------------------------------------------------
 # build_sandbox <project_dir>
-# Writes a minimal-but-real project dir that satisfies checks [1/6], [2/6]
-# (together with the git/curl stubs below), [3/6], [4/6], and [5/6]
-# deterministically, so the sandbox's overall pass/fail is driven only by
-# the memory check under test.
+# Writes a minimal-but-real project dir that satisfies checks [1/5], [2/5],
+# [3/5], and [4/5] deterministically, so the sandbox's overall pass/fail is
+# driven only by the memory check under test. (Before 2026-08-16 this also
+# needed a labs.gauntletai.com `origin` remote plus git/curl stubs, for the
+# repo-private check that used to sit at [2/6] -- that check no longer
+# exists in verify_submission.sh, so neither does the setup for it here.)
 # ---------------------------------------------------------------------------
 build_sandbox() {
     local project_dir="$1"
     mkdir -p "$project_dir"
 
     "$REAL_GIT" -C "$project_dir" init -q
-    "$REAL_GIT" -C "$project_dir" remote add origin \
-        "https://labs.gauntletai.com/hankholcomb/sandbox-repo.git"
 
-    # -- check [1/6]: evidence freshness gate. A valid, empty tickets.json
+    # -- check [1/5]: evidence freshness gate. A valid, empty tickets.json
     # and no receipts under .claude/evidence means nothing to check ->
     # the REAL, unmodified check_evidence_staleness.sh reports
     # "STALE RECEIPTS: none (0 receipt(s) checked)" and exits 0.
     mkdir -p "${project_dir}/docs" "${project_dir}/.claude/evidence"
     printf '{"tickets": []}\n' >"${project_dir}/docs/tickets.json"
 
-    # -- check [4/6]: docs/TECHNICAL.md must cover architecture, stack
+    # -- check [3/5]: docs/TECHNICAL.md must cover architecture, stack
     # rationale, known limits, and an AI-usage note.
     cat >"${project_dir}/docs/TECHNICAL.md" <<'TECH'
 # Sandbox TECHNICAL.md (fixture for run_require_db_wiring_tests.sh)
@@ -125,11 +125,11 @@ Fixture text.
 Fixture text.
 TECH
 
-    # -- check [3/6]: a demo video file must exist.
+    # -- check [2/5]: a demo video file must exist.
     mkdir -p "${project_dir}/submission/video"
     : >"${project_dir}/submission/video/demo.mp4"
 
-    # -- check [5/6]: submission/build_zip.sh must exist and produce a
+    # -- check [4/5]: submission/build_zip.sh must exist and produce a
     # valid zip containing docs/TECHNICAL.md with no excluded paths. This
     # fixture is a trivial stand-in for the real submission/build_zip.sh
     # (out of T-31's scope) -- it only needs to satisfy verify_submission.sh's
@@ -147,57 +147,9 @@ echo "build_zip(sandbox fixture): wrote ${OUT}"
 BUILDZIP
     chmod +x "${project_dir}/submission/build_zip.sh"
 
-    # -- check [6/6] (the check under test): only needs backend/ to exist;
+    # -- check [5/5] (the check under test): only needs backend/ to exist;
     # the actual `uv run pytest tests/memory -q` invocation is stubbed.
     mkdir -p "${project_dir}/backend"
-}
-
-# ---------------------------------------------------------------------------
-# write_stub_git <bin_dir>
-# Intercepts ONLY `git credential fill` (so check [2/6] gets a synthetic
-# credential instead of touching the real macOS keychain); every other
-# invocation execs the real git untouched, so `git remote -v` etc. still
-# operate for real against the sandbox repo.
-# ---------------------------------------------------------------------------
-write_stub_git() {
-    local bin_dir="$1"
-    cat >"${bin_dir}/git" <<GIT_STUB
-#!/usr/bin/env bash
-if [ "\$1" = "credential" ] && [ "\$2" = "fill" ]; then
-    cat >/dev/null
-    printf 'protocol=https\nhost=labs.gauntletai.com\nusername=stub\npassword=stub-token-for-test\n'
-    exit 0
-fi
-exec "${REAL_GIT}" "\$@"
-GIT_STUB
-    chmod +x "${bin_dir}/git"
-}
-
-# ---------------------------------------------------------------------------
-# write_stub_curl <bin_dir>
-# Answers only the GitLab `.../api/v4/projects/...` shape check [2/6]
-# calls, with a synthetic visibility=private 200 (mirrors
-# run_smoke_exit_code_tests.sh's curl-stub convention of putting the body
-# and the `-w '\n%{http_code}'` status on one stdout stream).
-# ---------------------------------------------------------------------------
-write_stub_curl() {
-    local bin_dir="$1"
-    cat >"${bin_dir}/curl" <<'CURL_STUB'
-#!/usr/bin/env bash
-url=""
-for arg in "$@"; do
-    url="$arg"
-done
-case "$url" in
-    */api/v4/projects/*)
-        printf '{"visibility":"private"}\n200'
-        ;;
-    *)
-        printf '\n000'
-        ;;
-esac
-CURL_STUB
-    chmod +x "${bin_dir}/curl"
 }
 
 # ---------------------------------------------------------------------------
@@ -209,7 +161,7 @@ CURL_STUB
 #   $JARVIS_MEMORY_TESTS_REQUIRE_DB  -- NOT set by this harness; this is
 #                                        the thing under test. It is set
 #                                        (or not) by verify_submission.sh's
-#                                        own [6/6] check when it invokes
+#                                        own [5/5] check when it invokes
 #                                        `uv run pytest tests/memory -q`.
 # ---------------------------------------------------------------------------
 write_stub_uv() {
@@ -260,8 +212,6 @@ run_case() {
     mkdir -p "$bin_dir"
 
     build_sandbox "$project_dir"
-    write_stub_git "$bin_dir"
-    write_stub_curl "$bin_dir"
     write_stub_uv "$bin_dir"
 
     local out_file="${case_dir}/output.log"
@@ -300,13 +250,13 @@ run_case() {
 
 # ---------------------------------------------------------------------------
 # Case 1: unreachable database, flag honestly wired (this drives the real,
-# unmodified scripts/verify_submission.sh) -> [6/6] must FAIL and the
+# unmodified scripts/verify_submission.sh) -> [5/5] must FAIL and the
 # overall gate must exit non-zero.
 # ---------------------------------------------------------------------------
 run_case "db_unreachable" "0" "nonzero" "FAILED -- memory suite check"
 
 # ---------------------------------------------------------------------------
-# Case 2: reachable database, flag honestly wired -> [6/6] must PASS, and
+# Case 2: reachable database, flag honestly wired -> [5/5] must PASS, and
 # because every other check in the sandbox is independently satisfied (see
 # build_sandbox), the overall gate must exit 0.
 # ---------------------------------------------------------------------------

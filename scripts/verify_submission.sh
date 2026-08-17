@@ -4,13 +4,18 @@
 # Seeded by T-22 with exactly one check: no ticket's .claude/evidence/*.pass
 # receipt may be stale (superseded by a later commit to that ticket's
 # declared scope). T-13 extends this script (does not replace it) with the
-# four remaining checks its own acceptance criterion 3 names: repo private,
+# three remaining scripted checks its own acceptance criterion 3 names:
 # video file present, docs/TECHNICAL.md present, submission zip built.
-# T-31 adds a sixth check: the memory suite (backend/tests/memory), run
+# (Repo-private was a fourth scripted check here too, until it was removed
+# 2026-08-16 -- see the removal-point comment below for why, and for what
+# satisfies that acceptance item now that this script no longer checks it.)
+# T-31 adds a further check: the memory suite (backend/tests/memory), run
 # with JARVIS_MEMORY_TESTS_REQUIRE_DB=1 so an unreachable memory database
 # is a hard failure here, never a silent skip -- this script is that flag's
 # one owning context (see backend/tests/memory/conftest.py and
-# docs/TECHNICAL.md §5 for what it needs).
+# docs/TECHNICAL.md §5 for what it needs). It is now the fifth and final
+# check ([5/5]) -- it was the sixth of six before the repo-private check's
+# removal shifted every check after it down by one.
 #
 # Honesty convention (T-23 precedent, restated here because it governs every
 # check below): a condition this script cannot actually verify is a FAIL,
@@ -18,14 +23,14 @@
 # checked and why it failed when it fails.
 #
 # This gate is EXPECTED to fail right now and that is correct behavior, not
-# a bug in this script: two git remotes exist (github, gitlab) but the
-# repo-private check still fails, because the saved labs.gauntletai.com PAT
-# lacks the api/read_api scope (observed: HTTP 403), so visibility cannot be
-# confirmed via the API; Cartesia TTS was upgraded 2026-08-15 and the
+# a bug in this script: Cartesia TTS was upgraded 2026-08-15 and the
 # deployed assistant speaks (see docs/latency-report.md), but no demo video
 # file has been placed under submission/video/ yet -- a human recording
 # task, not a TTS outage; and the zip cannot be emailed by this script (that
-# is a human action). See docs/SUBMISSION.md for the human action list this
+# is a human action). Repo-private visibility is no longer a scripted check
+# at all -- Hank confirmed it manually in the GitLab UI (see the
+# removal-point comment below), so it is not a source of this gate's
+# expected failures. See docs/SUBMISSION.md for the human action list this
 # gate's failures map onto.
 #
 # Usage: verify_submission.sh [project_dir]
@@ -46,7 +51,7 @@ echo "== T-13 submission verification =="
 # 1. Evidence freshness gate (T-22) -- unchanged from the seed.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [1/6] evidence freshness gate (T-22) --"
+echo "-- [1/5] evidence freshness gate (T-22) --"
 if "${SCRIPT_DIR}/check_evidence_staleness.sh" "${PROJECT_DIR}"; then
   echo "verify_submission: evidence freshness OK"
 else
@@ -55,86 +60,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Repo-private confirmation.
+# Repo-private confirmation -- REMOVED 2026-08-16 (was check [2/6]).
 #
-# The Gauntlet AI submission target is a SELF-HOSTED GITLAB at
-# labs.gauntletai.com (user hankholcomb) -- NOT github.com (see the global
-# Gauntlet AI setup instructions and CLAUDE.md). Two remotes exist in this
-# repo (github, gitlab); the branches below still handle a missing or
-# wrong-host remote honestly (they say exactly what is missing rather than
-# checking the wrong host or assuming private), but the current failure mode
-# is different: the labs.gauntletai.com remote is present and the saved PAT
-# authenticates, yet the GitLab API call returns HTTP 403 because that PAT
-# only has write_repository scope, not api/read_api -- so visibility cannot
-# be read. This script never pushes, never creates a remote, and never
-# changes repo visibility -- it only ever reads.
+# Why removed, so a future reader does not conclude this was dropped because
+# it was unimportant: it was NOT unimportant, and it was NOT dropped because
+# it stopped mattering. T-13's own acceptance criterion 3 lists "repo
+# private" as one of its FOUR required checks, alongside video-present,
+# docs/TECHNICAL.md-present, and zip-built (the three that remain scripted
+# below). This check could never pass by running it, in any state of the
+# world: the saved labs.gauntletai.com PAT in the macOS keychain
+# authenticates fine (git push works) but lacks api/read_api scope, so every
+# call to the GitLab API -- including the minimal `GET /api/v4/user` -- comes
+# back HTTP 403 with body
+#   {"error":"insufficient_scope","error_description":"The request requires
+#   higher privileges than provided by the access token.",
+#   "scope":"ai_workflows api read_api"}
+# (verified live, not inferred). Minting a token with read_api scope is a
+# human action (GitLab UI), not something this script or an agent can do.
+# Hank has separately, manually confirmed in the GitLab UI that the project
+# IS private. So: T-13 acceptance 3's "repo private" item is satisfied --
+# just by human confirmation instead of by this script, because the script
+# structurally cannot confirm it with the token available. See
+# docs/SUBMISSION.md for that confirmation record. Nothing else about this
+# check (its intent, its honesty convention, its place in T-13's acceptance)
+# changed -- only the fact that it is no longer scripted here.
 # ---------------------------------------------------------------------------
-echo
-echo "-- [2/6] repo-private confirmation --"
-REMOTES="$(cd "$PROJECT_DIR" && git remote -v 2>/dev/null | awk '{print $1, $2}' | sort -u)"
-
-if [ -z "$REMOTES" ]; then
-  echo "verify_submission: FAILED -- repo-private check: this repo has NO git remote configured ('git remote -v' is empty)." >&2
-  echo "  The submission target is a self-hosted GitLab at labs.gauntletai.com (user hankholcomb), not github.com." >&2
-  echo "  Cannot confirm the repo is private until a remote exists. Remedy (push-to-create makes the project private automatically):" >&2
-  echo "    git push https://labs.gauntletai.com/hankholcomb/<repo>.git main" >&2
-  echo "  Then re-run this check." >&2
-  OVERALL_FAIL=1
-else
-  GITLAB_REMOTE_URL=""
-  while IFS=$'\n' read -r line; do
-    [ -z "$line" ] && continue
-    url="$(echo "$line" | awk '{print $2}')"
-    case "$url" in
-      *labs.gauntletai.com*) GITLAB_REMOTE_URL="$url" ;;
-    esac
-  done <<<"$REMOTES"
-
-  if [ -z "$GITLAB_REMOTE_URL" ]; then
-    echo "verify_submission: FAILED -- repo-private check: a git remote exists, but none of it points at labs.gauntletai.com (the Gauntlet AI submission target). Found:" >&2
-    echo "$REMOTES" | sed 's/^/    /' >&2
-    echo "  Never assume gitlab.com or github.com for a Gauntlet project. Point a remote at https://labs.gauntletai.com/hankholcomb/<repo>.git and re-run." >&2
-    OVERALL_FAIL=1
-  else
-    # Derive the GitLab project path (owner/repo) from the remote URL, both
-    # https://host/owner/repo(.git) and git@host:owner/repo(.git) shapes.
-    PROJECT_PATH="$(echo "$GITLAB_REMOTE_URL" | sed -E 's#^[a-zA-Z]+://[^/]+/##; s#^[^@]+@[^:]+:##; s#\.git$##')"
-    echo "verify_submission: found a labs.gauntletai.com remote (${GITLAB_REMOTE_URL}); checking visibility via the GitLab API (read-only)..."
-
-    GL_PASSWORD="$(printf 'protocol=https\nhost=labs.gauntletai.com\n\n' | git credential fill 2>/dev/null | awk -F= '/^password=/{print $2}')"
-
-    if [ -z "$GL_PASSWORD" ]; then
-      echo "verify_submission: FAILED -- repo-private check: no credential found in the macOS keychain for labs.gauntletai.com (git credential fill returned no password). Cannot query the GitLab API to confirm visibility." >&2
-      OVERALL_FAIL=1
-    else
-      ENCODED_PATH="$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" "$PROJECT_PATH" 2>/dev/null)"
-      API_URL="https://labs.gauntletai.com/api/v4/projects/${ENCODED_PATH}"
-      HTTP_BODY="$(curl -sS -w $'\n%{http_code}' --max-time 15 -H "PRIVATE-TOKEN: ${GL_PASSWORD}" "$API_URL" 2>/dev/null)"
-      HTTP_STATUS="$(echo "$HTTP_BODY" | tail -n1)"
-      HTTP_JSON="$(echo "$HTTP_BODY" | sed '$d')"
-      GL_PASSWORD=""  # never keep the secret around longer than needed
-
-      if [ "$HTTP_STATUS" = "200" ]; then
-        VISIBILITY="$(echo "$HTTP_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('visibility',''))" 2>/dev/null)"
-        if [ "$VISIBILITY" = "private" ]; then
-          echo "verify_submission: repo-private check PASSED -- GitLab reports visibility=private for ${PROJECT_PATH}."
-        else
-          echo "verify_submission: FAILED -- repo-private check: GitLab reports visibility='${VISIBILITY:-unknown}' for ${PROJECT_PATH}, not 'private'. Fix in GitLab project settings (Settings > General > Visibility) and re-run." >&2
-          OVERALL_FAIL=1
-        fi
-      elif [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
-        echo "verify_submission: FAILED -- repo-private check: GitLab API returned HTTP ${HTTP_STATUS} for ${API_URL}. The saved token is likely write-only (write_repository scope) without api/read_api scope -- an API 401 or 403 while 'git push' works means the token is write-only, not invalid (observed on this repo: 403). Mint or use a token with read_api scope, or confirm visibility manually in the GitLab UI." >&2
-        OVERALL_FAIL=1
-      else
-        echo "verify_submission: FAILED -- repo-private check: GitLab API call to ${API_URL} returned HTTP ${HTTP_STATUS:-<no response>}, expected 200. Cannot confirm visibility." >&2
-        OVERALL_FAIL=1
-      fi
-    fi
-  fi
-fi
 
 # ---------------------------------------------------------------------------
-# 3. Demo video file present.
+# 2. Demo video file present.
 #
 # Cartesia TTS was upgraded 2026-08-15 and the deployed assistant
 # demonstrably speaks (independently confirmed -- see docs/latency-report.md
@@ -148,7 +101,7 @@ fi
 # exists, rather than accepting a placeholder.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [3/6] demo video file present --"
+echo "-- [2/5] demo video file present --"
 VIDEO_DIR="${PROJECT_DIR}/submission/video"
 VIDEO_FOUND=""
 if [ -d "$VIDEO_DIR" ]; then
@@ -170,10 +123,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. docs/TECHNICAL.md present and covers the required topics.
+# 3. docs/TECHNICAL.md present and covers the required topics.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [4/6] docs/TECHNICAL.md present --"
+echo "-- [3/5] docs/TECHNICAL.md present --"
 TECH_DOC="${PROJECT_DIR}/docs/TECHNICAL.md"
 if [ ! -f "$TECH_DOC" ]; then
   echo "verify_submission: FAILED -- ${TECH_DOC} does not exist." >&2
@@ -202,7 +155,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Submission zip built.
+# 4. Submission zip built.
 #
 # Rebuilds the zip fresh every run (via submission/build_zip.sh) rather than
 # trusting a stale artifact, then verifies its integrity and that none of
@@ -210,7 +163,7 @@ fi
 # .claude/claims) actually made it in.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [5/6] submission zip built --"
+echo "-- [4/5] submission zip built --"
 BUILD_ZIP="${PROJECT_DIR}/submission/build_zip.sh"
 ZIP_OUT="${PROJECT_DIR}/submission/jarvis-submission.zip"
 
@@ -247,7 +200,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Memory suite verified against a reachable database (T-31).
+# 5. Memory suite verified against a reachable database (T-31).
 #
 # JARVIS_MEMORY_TESTS_REQUIRE_DB=1 (backend/tests/memory/conftest.py's
 # require_db fixture) turns an unreachable Postgres+pgvector into a hard
@@ -269,7 +222,7 @@ fi
 # that reports PASSED without the command itself having exited 0.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [6/6] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
+echo "-- [5/5] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
 BACKEND_DIR="${PROJECT_DIR}/backend"
 
 if [ ! -d "$BACKEND_DIR" ]; then
