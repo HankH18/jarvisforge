@@ -1,12 +1,12 @@
-# Jarvis
+# Jarvis — grounded real-time voice assistant
 
-Jarvis is a real-time, low-latency voice assistant with persistent
-cross-session memory. It answers strictly from grounded, live data — a
-weather API and GitHub repos it can query on demand — refusing rather than
-fabricating when the data doesn't support an answer, while holding
-conversation latency close to human turn-taking speed.
+A real-time voice assistant (LiveKit + Claude) that answers questions about GitHub repos and live weather **only** from data fetched in the current turn. It refuses with "I don't know" instead of guessing, remembers users across sessions (mem0 on pgvector), and can turn a GitHub issue into a pull request on voice command (Claude Agent SDK, allow-listed repos only, never merges).
 
-This repo is **private** (see `docs/SPEC.md` §C6).
+- **Grounding eval:** 38 of 38 human-approved golden cases passed on live Claude Haiku 4.5 / Sonnet 5, with 0 fabrications and 0 wrong refusals ([`docs/evals/latest.json`](docs/evals/latest.json), run of 2026-08-15).
+- **Latency, measured on the deployed stack on 2026-08-15:** no-lookup time-to-first-audio was 730 ms median and 1122 ms p95 (n = 6) against an 800 ms target. The miss is documented, with every lever measured ([`docs/latency-report.md`](docs/latency-report.md)).
+- **Run it locally:** `make install`, then `make test` (backend pytest + frontend Vitest). The voice loop needs LiveKit, Deepgram, Cartesia and Anthropic keys in `.env`; then `make dev-api`, `make dev-worker` and `make dev-web`.
+- **Stack:** LiveKit Agents, Deepgram STT, Cartesia TTS, Claude Haiku 4.5 / Sonnet 5, mem0 + pgvector, FastAPI, React, Clerk, Fly.io.
+- **Architecture and known limits:** [`docs/TECHNICAL.md`](docs/TECHNICAL.md)
 
 ## Repo layout
 

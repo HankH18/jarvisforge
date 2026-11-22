@@ -16,7 +16,7 @@ do.
 | Acceptance 1 — video content checklist | **PLACEHOLDER, BLOCKED** | `docs/SPEC.md` §Open questions item 1: the required contents of the video and the Attachments section were cut off in the provided PRD screenshots. No checklist has been invented to fill the gap. **Needs**: the missing PRD screenshot region from Hank. |
 | Demo video file | **Recorded** | https://www.loom.com/share/b30d03307bd147aca97e9c64bd123d5a |
 | Repo-private confirmation | **DONE** | Confirmed manually by Hank in the GitLab UI (Settings → General → Visibility: private). The saved PAT lacks `api`/`read_api` scope, so `verify_submission.sh` cannot check this itself — see the removal-point comment at the top of the script. |
-| Zip emailed to both addresses | **BLOCKED — human action** | Sending email is the human's call; no agent has sent anything. **Needs**: Hank sends `submission/jarvis-submission.zip` to `wduffy@frontieraudio.com` and `pmoeckel@frontieraudio.com`. Leave §3 blank until it happens. |
+| Zip emailed to both addresses | **BLOCKED — human action** | Sending email is the human's call; no agent has sent anything. **Needs**: Hank sends `submission/jarvis-submission.zip` to the reviewing team. Leave §3 blank until it happens. |
 | Evidence-freshness gate (T-22, wraps `check_evidence_staleness.sh`) | **FAILING** | `bash scripts/check_evidence_staleness.sh .` reports **20 STALE + 1 MISSING (`T-13`)** against 34 fingerprinted receipts in `.claude/evidence/`. Every STALE finding is a different ticket's commit touching a shared scope glob, not a regression in that ticket's own deliverable — expected, recurring, not a defect queue. `MISSING: T-13` is by design: this ticket cannot mint its own receipt until submission happens, the last step of §2. |
 
 ## 2. Action list (do these in order)
@@ -27,8 +27,8 @@ do.
 2. **Rebuild the zip right before sending** (`bash submission/build_zip.sh`,
    or just re-run `verify_submission.sh`, which rebuilds it as part of
    `[3/4]`).
-3. **Send `submission/jarvis-submission.zip`** to both
-   `wduffy@frontieraudio.com` and `pmoeckel@frontieraudio.com`, calling out
+3. **Send `submission/jarvis-submission.zip`** to the reviewing
+   team, calling out
    `docs/TECHNICAL.md` (already inside the zip) and the Loom demo link in
    the email body. Then fill in §3 below.
 4. **Re-run `bash scripts/verify_submission.sh`.** `[2/4]`–`[4/4]` already
@@ -43,8 +43,7 @@ Hank has actually sent the email and filled this in himself.
 
 - Sent by: _______
 - Sent at (UTC): _______
-- To: wduffy@frontieraudio.com — confirmed sent: [ ]
-- To: pmoeckel@frontieraudio.com — confirmed sent: [ ]
+- To: the reviewing team — confirmed sent: [ ]
 - Zip file sent (path/size): _______
 - Zip sha256 (`shasum -a 256 submission/jarvis-submission.zip`): _______
 

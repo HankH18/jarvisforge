@@ -105,7 +105,7 @@
 - **Non-goals**: No custom wake words; no mobile; no background-tab guarantees
 
 ### T-13: Submission package sent: video, docs, zip emailed, checklist green  `[queue]`
-- **Objective**: Technical documentation (architecture + AI-usage note), 5-10 min demo video incl. GitHub Q&A against the chosen active mid-size OSS repo, private-repo confirmation, zip emailed to wduffy@ and pmoeckel@frontieraudio.com.
+- **Objective**: Technical documentation (architecture + AI-usage note), 5-10 min demo video incl. GitHub Q&A against the chosen active mid-size OSS repo, private-repo confirmation, zip emailed to the reviewing team.
 - **Acceptance**: 1) PLACEHOLDER - BLOCKED ON SPEC open question 1: video content checklist finalized from the missing PRD screenshot region before recording 2) docs/TECHNICAL.md covers architecture, stack rationale, and known limits 3) scripts/verify_submission.sh checks: repo private, video file present, TECHNICAL.md present, zip built 4) Zip sent to both addresses; sent-confirmation noted in docs/SUBMISSION.md
 - **Verify**: `bash scripts/verify_submission.sh`
 - **Scope**: `docs/**, scripts/verify_submission.sh, submission/**`

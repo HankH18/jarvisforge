@@ -9,6 +9,8 @@ and independent `gh`-based verification are below.
 
 ## The run
 
+The testbed repository is private, so the issue and PR links below resolve only for its owner. The diff the agent produced is reproduced under "What the agent changed".
+
 | | |
 |---|---|
 | Repo | `https://github.com/HankH18/jarvis-agent-pr-testbed` (private) |

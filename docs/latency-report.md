@@ -93,6 +93,8 @@ machine over `flyctl ssh` — not the driver's client-side stopwatch (see the ca
 | local laptop, preemptive off | 820 ms | 1130 ms | 8 |
 | **deployed worker (`iad`), preemptive off** | **730 ms** | **1122 ms** | **6** |
 
+The six worker-side rows behind the deployed row are not in the committed `docs/latency-deployed-2026-08-14.jsonl`, which holds 55 rows from a different run, so these two figures cannot be recomputed from this repository.
+
 R1 target is p95 < 800 ms. Deployed p95 is 1122 ms — the gap is ~320 ms and essentially
 unchanged from the laptop (1130 → 1122 ms is inside the noise). The median improved ~90 ms,
 which is the co-location benefit showing up where it can: on the fast path. It does not

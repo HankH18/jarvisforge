@@ -390,7 +390,7 @@
   {
    "id": "T-13",
    "title": "Submission package sent: video, docs, zip emailed, checklist green",
-   "objective": "Technical documentation (architecture + AI-usage note), 5-10 min demo video incl. GitHub Q&A against the chosen active mid-size OSS repo, private-repo confirmation, zip emailed to wduffy@ and pmoeckel@frontieraudio.com.",
+   "objective": "Technical documentation (architecture + AI-usage note), 5-10 min demo video incl. GitHub Q&A against the chosen active mid-size OSS repo, private-repo confirmation, zip emailed to the reviewing team.",
    "refs": [
     "SPEC#success-criteria",
     "SPEC#open-questions"

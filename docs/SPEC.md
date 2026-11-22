@@ -105,7 +105,7 @@ one-week window, solo builder executing via Claude Code.
 3. Latency report from deployed instance shows R1 budget met.
 4. Deployed URL live on Fly.io; smoke script passes against it.
 5. Demo video (5–10 min) recorded, incl. GitHub Q&A against an active
-   mid-size OSS repo; zip emailed to wduffy@ and pmoeckel@frontieraudio.com;
+   mid-size OSS repo; zip emailed to the reviewing team;
    technical documentation included.
 
 ## Open questions

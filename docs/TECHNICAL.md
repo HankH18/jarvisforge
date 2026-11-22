@@ -151,8 +151,7 @@ One Fly app (`jarvisforge`), two process groups defined in one `fly.toml`
 `fly secrets set` (never committed); `DATABASE_URL` is injected
 automatically by `fly postgres attach` rather than hand-set, because Fly's
 managed Postgres offering has no pgvector, so the Postgres instance backing
-mem0 is self-hosted rather than a Fly add-on (see `docs/fly-deploy-decisions`
-in project memory for the fuller reasoning).
+mem0 is self-hosted rather than a Fly add-on.
 
 ## 3. Stack rationale (from docs/DESIGN.md §Decisions)
 
@@ -365,7 +364,7 @@ survived unnoticed precisely because nothing had ever executed it. Fixed
 to `@v10.0.1`; `actions/checkout` and `actions/setup-node` bumped v4 → v5.
 Re-run `31901208728`: **success in 48s**, both jobs real — backend
 `503 passed, 13 skipped` plus `All checks passed!` (ruff), frontend
-`16 files / 105 tests` plus build.
+at PR #1 (2026-08-15): `16 files / 105 tests` plus build.
 
 Note the `503 passed, 13 skipped`, against 516 locally: the 13 skipped are
 the memory suite, because CI has no Postgres, and T-31's banner says so
