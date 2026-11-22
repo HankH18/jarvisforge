@@ -24,7 +24,7 @@
 # NOTE 2026-08-16: verify_submission.sh's repo-private check (formerly
 # [2/6]) was removed from the script entirely at Hank's request (it could
 # never pass with the scoped token available; visibility was confirmed
-# manually in the GitLab UI instead -- see the removal-point comment in
+# manually instead -- see the removal-point comment in
 # verify_submission.sh and docs/SUBMISSION.md). That check's git-credential
 # and curl stubs below are gone with it, and every check after it shifted
 # down by one: [3/6]->[2/5], [4/6]->[3/5], [5/6]->[4/5], [6/6]->[5/5].
@@ -97,7 +97,7 @@ CASES_RUN=0
 # Writes a minimal-but-real project dir that satisfies checks [1/4], [2/4],
 # and [3/4] deterministically, so the sandbox's overall pass/fail is
 # driven only by the memory check under test. (Before 2026-08-16 this also
-# needed a labs.gauntletai.com `origin` remote plus git/curl stubs, for the
+# needed an `origin` remote plus git/curl stubs, for the
 # repo-private check that used to sit at [2/6] -- that check no longer
 # exists in verify_submission.sh, so neither does the setup for it here.
 # Before 2026-08-17 this also wrote a dummy video file under

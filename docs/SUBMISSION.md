@@ -1,3 +1,5 @@
+> **Submission-time record, last brought up to date in August 2026.** The repository has since been made public on GitHub, and the Fly deployment mentioned below is no longer running.
+
 # Jarvis — Submission checklist (T-13)
 
 Human-facing status and action list for closing out submission. Run
@@ -11,11 +13,11 @@ do.
 | Item | Status | Detail |
 |---|---|---|
 | `docs/TECHNICAL.md` (architecture, stack rationale, known limits, AI-usage note) | **DONE** | Written against the code as it exists now; see the file for full detail, including an honest limits section. |
-| `scripts/verify_submission.sh` | **DONE** | Scripts `[1/4]` evidence freshness, `[2/4]` `docs/TECHNICAL.md` present, `[3/4]` zip built, `[4/4]` memory suite (T-31). Repo-private and video-present are satisfied by the two rows below instead of a script check — see the removal-point comments at the top of the script. |
+| `scripts/verify_submission.sh` | **DONE** | Scripts `[1/4]` evidence freshness, `[2/4]` `docs/TECHNICAL.md` present, `[3/4]` zip built, `[4/4]` memory suite (T-31). Repo-private and video-present are tracked in the two rows below instead of a script check — see the removal-point comments at the top of the script. |
 | `submission/build_zip.sh` + a verified zip | **DONE (mechanism)** | Builds a fresh zip from an explicit file list, excluding `.env`, `.git`, `backend/.venv`, `frontend/node_modules`, `backend/var`, `.claude/claims`, `.claude/evidence`, `.claude/evidence-v1`, `heartbeat.jsonl`, `.codegraph`, caches, and `frontend/dist`. Rebuilds on every `verify_submission.sh` run, so it always reflects current repo state. Run `unzip -l submission/jarvis-submission.zip` for the current file count and size. |
 | Acceptance 1 — video content checklist | **PLACEHOLDER, BLOCKED** | `docs/SPEC.md` §Open questions item 1: the required contents of the video and the Attachments section were cut off in the provided PRD screenshots. No checklist has been invented to fill the gap. **Needs**: the missing PRD screenshot region from Hank. |
 | Demo video file | **Recorded** | Hosted on Loom, not committed to this repo. |
-| Repo-private confirmation | **DONE** | Confirmed manually by Hank in the GitLab UI (Settings → General → Visibility: private). The saved PAT lacks `api`/`read_api` scope, so `verify_submission.sh` cannot check this itself — see the removal-point comment at the top of the script. |
+| Repo-private confirmation | **Superseded** | Confirmed manually by Hank at submission time. The repository is now public on GitHub. |
 | Zip emailed to both addresses | **BLOCKED — human action** | Sending email is the human's call; no agent has sent anything. **Needs**: Hank sends `submission/jarvis-submission.zip` to the reviewing team. Leave §3 blank until it happens. |
 | Evidence-freshness gate (T-22, wraps `check_evidence_staleness.sh`) | **FAILING** | `bash scripts/check_evidence_staleness.sh .` reports **20 STALE + 1 MISSING (`T-13`)** against 34 fingerprinted receipts in `.claude/evidence/`. Every STALE finding is a different ticket's commit touching a shared scope glob, not a regression in that ticket's own deliverable — expected, recurring, not a defect queue. `MISSING: T-13` is by design: this ticket cannot mint its own receipt until submission happens, the last step of §2. |
 

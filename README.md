@@ -45,5 +45,5 @@ service locally — never commit `.env`.
   rationale, and an honest known-limits section (including the R1 latency
   miss)
 - [`docs/SUBMISSION.md`](docs/SUBMISSION.md) — submission checklist and
-  current status
+  status at submission time
 - [`CLAUDE.md`](CLAUDE.md) — build execution protocol

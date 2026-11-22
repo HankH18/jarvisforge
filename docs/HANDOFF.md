@@ -148,8 +148,8 @@ that way.
 - **Postgres runs locally** as container `jarvis-memory-postgres` on
   `localhost:55432`. The memory integration suite needs it; without it the
   suite now skips *loudly* (T-23) rather than silently passing.
-- **`flyctl` is authenticated** as `holcombhank@icloud.com`. Apps:
-  `jarvisforge` (deployed) and `jarvisforge-pgvector`.
+- **`flyctl` is authenticated** to Hank's Fly.io account. Apps:
+  `jarvisforge` (deployed then; no longer running) and `jarvisforge-pgvector`.
 - **`gh` is authenticated** as `HankH18` via the repo-root `GITHUB_TOKEN`.
 - **No `AGENT_PR_ALLOWED_REPOS` exists in `.env`.** The issue→PR job needs
   it; the PR job denies by default when the allow-list is unset, which is

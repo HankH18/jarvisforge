@@ -5,7 +5,7 @@
 # Usage:
 #   bash scripts/smoke_deploy.sh [URL]
 #
-# Target URL resolution order: $1 > $SMOKE_URL > https://jarvisforge.fly.dev
+# Target URL resolution order: $1 > $SMOKE_URL (required; no default URL)
 #
 # Checks:
 #   a. GET  /healthz     -> HTTP 200
@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-TARGET_URL="${1:-${SMOKE_URL:-https://jarvisforge.fly.dev}}"
+TARGET_URL="${1:-${SMOKE_URL:?pass a URL or set SMOKE_URL}}"
 # Strip a trailing slash so path concatenation below is unambiguous.
 TARGET_URL="${TARGET_URL%/}"
 

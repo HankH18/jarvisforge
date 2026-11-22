@@ -2,11 +2,8 @@ name: CI
 
 # SPEC C7: keep CI light — two small jobs, pull_request only, no matrix, no e2e.
 #
-# CI reachability: this repo now has two git remotes — `github`
-# (https://github.com/HankH18/jarvisforge, private) and `gitlab`
-# (the actual Gauntlet AI submission target, self-hosted at
-# labs.gauntletai.com — see CLAUDE.md). A pull request opened against the
-# `github` remote runs this workflow.
+# CI reachability: a pull request opened against the GitHub repository
+# (https://github.com/HankH18/jarvisforge) runs this workflow.
 #
 # PROVEN 2026-08-15. PR #1 was the first pull request this repo ever had.
 # Its first run FAILED in 4s: `Unable to resolve action

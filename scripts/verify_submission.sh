@@ -32,7 +32,8 @@
 # until T-13 closes and mints one; and the zip cannot be emailed by this
 # script (that is a human action). Repo-private visibility and demo-video
 # presence are no longer scripted checks at all -- Hank confirmed
-# repo-private manually in the GitLab UI, and the demo video is recorded
+# repo-private manually at submission time (the repository is now public
+# on GitHub), and the demo video is recorded
 # and hosted on Loom rather than committed as a file to this repo (see the
 # removal-point comments below for both), so neither is a source of this
 # gate's expected failures. See docs/SUBMISSION.md for the human action
@@ -75,20 +76,16 @@ fi
 # too, on the same grounds -- see its own removal-point comment below --
 # so docs/TECHNICAL.md-present and zip-built are the two that remain
 # scripted below). This check could never pass by running it, in any state
-# of the world: the saved labs.gauntletai.com PAT in the macOS keychain
-# authenticates fine (git push works) but lacks api/read_api scope, so
-# every call to the GitLab API -- including the minimal `GET /api/v4/user`
-# -- comes back HTTP 403 with body
-#   {"error":"insufficient_scope","error_description":"The request requires
-#   higher privileges than provided by the access token.",
-#   "scope":"ai_workflows api read_api"}
-# (verified live, not inferred). Minting a token with read_api scope is a
-# human action (GitLab UI), not something this script or an agent can do.
-# Hank has separately, manually confirmed in the GitLab UI that the project
-# IS private. So: T-13 acceptance 3's "repo private" item is satisfied --
-# just by human confirmation instead of by this script, because the script
-# structurally cannot confirm it with the token available. See
-# docs/SUBMISSION.md for that confirmation record. Nothing else about this
+# of the world: the only access token available could not read the
+# project's settings through the hosting service's API, so the script had
+# no way to see the project's visibility, and getting a token that could
+# was a human action, not something this script or an agent can do. Hank
+# confirmed by hand, at submission time, that the project was private.
+# So: T-13 acceptance 3's "repo private" item was satisfied -- just by
+# human confirmation instead of by this script, because the script
+# structurally cannot confirm it with the token available. The repository
+# has since been made public on GitHub. See docs/SUBMISSION.md for that
+# confirmation record. Nothing else about this
 # check (its intent, its honesty convention, its place in T-13's acceptance)
 # changed -- only the fact that it is no longer scripted here.
 # ---------------------------------------------------------------------------

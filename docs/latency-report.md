@@ -1,3 +1,5 @@
+> **The Fly deployment measured here is no longer running.** The sections below are dated records from August 2026; read their present-tense statements about the deployed app as past.
+
 # Latency report: time-to-first-audio
 
 ## VERDICT (2026-08-15): R1 is NOT met. The miss is accepted and documented.
@@ -84,7 +86,7 @@ legs."* That has now been done. It shaved milliseconds off the median and nothin
 
 Run: room `deployed-r1-1786829812`, Fly app `jarvisforge` version 8, region `iad`, worker
 machine `2862ee5bd19558`. 8 turns driven from the chat-only (no-lookup) corpus via
-`scripts/drive_turns.py --token-url https://jarvisforge.fly.dev`. Numbers below are the
+`scripts/drive_turns.py --token-url <deployed-app-url>`. Numbers below are the
 **worker's own** `/app/var/latency.jsonl` (`first_audio_ts - turn_end_ts`), pulled off the
 machine over `flyctl ssh` — not the driver's client-side stopwatch (see the caveat below).
 
@@ -510,9 +512,9 @@ thing to measure once Cartesia is back, not a conclusion.
 1. Confirm Cartesia works: `flyctl ssh console -a jarvisforge --machine <worker-machine-id>` and
    watch `flyctl logs -a jarvisforge` during one live turn for the absence of the `402` seen
    below, or just run step 2 and check it produces `>0` completions.
-2. `uv run python scripts/drive_turns.py --turns 55 --token-url https://jarvisforge.fly.dev
+2. `uv run python scripts/drive_turns.py --turns 55 --token-url <deployed-app-url>
    --utterances scripts/utterances --timeout 30 --json /tmp/drive-turns-out.json` (from
-   `backend/`, or adjust `uv run` accordingly) against the live deployment.
+   `backend/`, or adjust `uv run` accordingly) against a running deployment.
 3. Pull the worker's JSONL before the machine restarts/redeploys (it is NOT persisted --
    no `[mounts]` in `fly.toml`, see "Where deployed latency records actually come from" below):
    `flyctl ssh sftp get /app/var/latency.jsonl ./deployed-latency.jsonl -a jarvisforge`
@@ -560,7 +562,7 @@ resolves to `/opt/venv/lib/python3.12/site-packages/jarvis/cadence/assets/filler
 
 An attempt was made to capture a fresh >=50-turn deployed latency sample per this ticket's
 acceptance item 3, using `scripts/drive_turns.py --turns 55 --token-url
-https://jarvisforge.fly.dev --utterances scripts/utterances --timeout 30`.
+<deployed-app-url> --utterances scripts/utterances --timeout 30`.
 
 **Result: 0 of 55 turns completed. Every turn timed out waiting for first audio.** Three
 follow-up single-turn diagnostics reproduced this (one with `--timeout 120` -- 120s, not a

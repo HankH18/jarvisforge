@@ -4,7 +4,9 @@ T-13 deliverable: architecture, stack rationale, and known limits, written
 against the code as it exists today (2026-08-14), not as the plan imagined
 it. Companion to `docs/SPEC.md` (intent) and `docs/DESIGN.md` (pinned
 contracts) — this document reports what was actually built and where it
-falls short, including things that are currently broken in production.
+falls short, including things that were broken in production. The Fly
+deployment it describes is no longer running; read its statements about
+the deployed app as records of how it ran.
 
 ## 1. What Jarvis is
 
@@ -186,9 +188,9 @@ mem0 is self-hosted rather than a Fly add-on.
   **authenticated mode** verifies a Clerk session JWT and derives identity
   server-side (a client cannot impersonate another user's memory namespace
   by editing the request body); **anonymous mode** falls back to the
-  original, pre-Clerk contract. `CLERK_SECRET_KEY` is set on the deployed
+  original, pre-Clerk contract. `CLERK_SECRET_KEY` was set on the deployed
   Fly app and `VITE_CLERK_PUBLISHABLE_KEY` is baked into the frontend
-  bundle at build time (`backend/Dockerfile`), so the live deployment runs
+  bundle at build time (`backend/Dockerfile`), so the deployment ran
   authenticated: `POST /api/token` 401s an unauthenticated caller, and the
   SPA gates the console behind an opaque, centred, full-screen Clerk
   sign-in modal (`role=dialog`, `aria-modal`, the app behind it
@@ -324,7 +326,7 @@ real constraint, not a footnote: it would need resolving (clearing rights,
 or swapping in a permissively-licensed wake model) before any commercial
 use of this app.
 
-**Clerk auth is live on the deployed app.** `/api/token` requires a
+**Clerk auth was on in the deployed app.** `/api/token` requires a
 verified Clerk session token and 401s everyone else; the switch is the
 same server-side-only mechanism described in §4 — nothing in the request
 can move a deployed process between modes.
@@ -347,8 +349,7 @@ tested while never actually being connected to what ships.
 (lint + unit tests), `frontend` (lint, build, unit tests), and `harness`
 (the four shell suites under `scripts/tests/` — evidence receipts, scope
 guard, verify_submission DB wiring, smoke exit codes). It runs against the
-`github` remote (https://github.com/HankH18/jarvisforge; the `gitlab`
-submission remote is self-hosted, not GitHub — see `CLAUDE.md`).
+GitHub repository (https://github.com/HankH18/jarvisforge).
 
 The `harness` job was added 2026-08-15. Before it, no workflow referenced
 anything under `scripts/tests/`, so those suites ran only when a ticket
