@@ -103,7 +103,7 @@ fi
 # repo-private, docs/TECHNICAL.md-present, and zip-built (the two that
 # remain scripted below). This check could never pass by running it, in
 # any state of the world: Hank recorded the demo and it is hosted on
-# Loom -- https://www.loom.com/share/b30d03307bd147aca97e9c64bd123d5a --
+# Loom --
 # not committed to this repo, so submission/video/ stays empty by design.
 # This check only ever tested for a local *.mp4/*.mov/*.mkv/*.webm/*.avi
 # file under submission/video/, which structurally cannot match a hosted
