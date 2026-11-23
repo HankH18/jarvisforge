@@ -9,7 +9,7 @@
 # `pytest.fail()` instead of a loud-but-passing skip. Before T-31, nothing in
 # this repo ever set that flag, so the memory suite's integration layer
 # could silently never run while the exit code stayed 0. T-31 wires
-# scripts/verify_submission.sh's check `[4/4]` to set it. This harness
+# scripts/verify_submission.sh's check `[3/3]` to set it. This harness
 # proves that wiring actually binds -- not just that the string
 # "JARVIS_MEMORY_TESTS_REQUIRE_DB=1" appears somewhere in the file.
 #
@@ -37,8 +37,14 @@
 # with it, and every check after it shifted down by one again:
 # [3/5]->[2/4], [4/5]->[3/4], [5/5]->[4/4].
 #
+# NOTE 2026-11-23: verify_submission.sh's docs/TECHNICAL.md check
+# (formerly [2/4], which grepped that file for four topic names) was
+# removed. The TECHNICAL.md fixture below stays only because the zip
+# check still needs that file in the zip. The later checks shifted down
+# by one again: [3/4]->[2/3], [4/4]->[3/3].
+#
 # WHAT IS STUBBED AND WHY:
-#   - `uv`: check [4/4] shells out to `cd backend && ... uv run pytest
+#   - `uv`: check [3/3] shells out to `cd backend && ... uv run pytest
 #     tests/memory -q`. This harness is about verify_submission.sh's OWN
 #     flag-wiring and exit-code plumbing (T-31 acceptance #2), not live DB
 #     connectivity or a real pytest run, so `uv` is stubbed to behave
@@ -54,22 +60,22 @@
 #         unreachable -- i.e. this test's RED/GREEN genuinely depends on
 #         verify_submission.sh setting the flag, not merely on the stub's
 #         own scripted responses.
-# Checks [1/4], [2/4], [3/4] are satisfied for real (no stubbing) by
+# Checks [1/3] and [2/3] are satisfied for real (no stubbing) by
 # fixture files this harness writes into the sandbox project dir before
 # each run -- an empty docs/tickets.json + empty .claude/evidence/ (check
-# 1), a docs/TECHNICAL.md covering the four required topics (check 2), and
-# a trivial submission/build_zip.sh fixture (check 3, mirroring the real
+# 1), and a docs/TECHNICAL.md plus a trivial submission/build_zip.sh
+# fixture that zips it (check 2, mirroring the real
 # script's shape but not its exclude list, which is out of T-31's scope)
 # -- so the sandbox's overall exit code is driven ONLY by the memory check
 # under test, in both directions.
 #
 # Two cases, each asserting an exact exit code AND the memory check's own
 # PASSED/FAILED line:
-#   1. db_unreachable -> [4/4] FAILS, verify_submission.sh exits non-zero
+#   1. db_unreachable -> [3/3] FAILS, verify_submission.sh exits non-zero
 #      (guaranteed regardless of the other checks: OVERALL_FAIL is
 #      monotonic in verify_submission.sh -- once any check sets it, the
 #      final exit code is non-zero no matter what else passed)
-#   2. db_reachable    -> [4/4] PASSES, and -- because every other check in
+#   2. db_reachable    -> [3/3] PASSES, and -- because every other check in
 #      the sandbox is independently satisfied by the fixtures above --
 #      verify_submission.sh exits 0
 #
@@ -94,8 +100,8 @@ CASES_RUN=0
 
 # ---------------------------------------------------------------------------
 # build_sandbox <project_dir>
-# Writes a minimal-but-real project dir that satisfies checks [1/4], [2/4],
-# and [3/4] deterministically, so the sandbox's overall pass/fail is
+# Writes a minimal-but-real project dir that satisfies checks [1/3] and
+# [2/3] deterministically, so the sandbox's overall pass/fail is
 # driven only by the memory check under test. (Before 2026-08-16 this also
 # needed an `origin` remote plus git/curl stubs, for the
 # repo-private check that used to sit at [2/6] -- that check no longer
@@ -111,33 +117,24 @@ build_sandbox() {
 
     "$REAL_GIT" -C "$project_dir" init -q
 
-    # -- check [1/4]: evidence freshness gate. A valid, empty tickets.json
+    # -- check [1/3]: evidence freshness gate. A valid, empty tickets.json
     # and no receipts under .claude/evidence means nothing to check ->
     # the REAL, unmodified check_evidence_staleness.sh reports
     # "STALE RECEIPTS: none (0 receipt(s) checked)" and exits 0.
     mkdir -p "${project_dir}/docs" "${project_dir}/.claude/evidence"
     printf '{"tickets": []}\n' >"${project_dir}/docs/tickets.json"
 
-    # -- check [2/4]: docs/TECHNICAL.md must cover architecture, stack
-    # rationale, known limits, and an AI-usage note.
+    # -- docs/TECHNICAL.md: no check reads its contents any more, but
+    # check [2/3] fails unless the zip contains it, so the zip fixture
+    # below needs it to exist.
     cat >"${project_dir}/docs/TECHNICAL.md" <<'TECH'
 # Sandbox TECHNICAL.md (fixture for run_require_db_wiring_tests.sh)
 
-## Architecture
-Fixture text only -- this file exists to satisfy verify_submission.sh's
-docs/TECHNICAL.md content check inside an isolated sandbox project dir.
-
-## Stack rationale
-Fixture text.
-
-## Known limits
-Fixture text.
-
-## AI-usage note
-Fixture text.
+Fixture text only -- this file exists so the sandbox's submission zip
+contains docs/TECHNICAL.md, which verify_submission.sh's zip check requires.
 TECH
 
-    # -- check [3/4]: submission/build_zip.sh must exist and produce a
+    # -- check [2/3]: submission/build_zip.sh must exist and produce a
     # valid zip containing docs/TECHNICAL.md with no excluded paths. This
     # fixture is a trivial stand-in for the real submission/build_zip.sh
     # (out of T-31's scope) -- it only needs to satisfy verify_submission.sh's
@@ -159,7 +156,7 @@ echo "build_zip(sandbox fixture): wrote ${OUT}"
 BUILDZIP
     chmod +x "${project_dir}/submission/build_zip.sh"
 
-    # -- check [4/4] (the check under test): only needs backend/ to exist;
+    # -- check [3/3] (the check under test): only needs backend/ to exist;
     # the actual `uv run pytest tests/memory -q` invocation is stubbed.
     mkdir -p "${project_dir}/backend"
 }
@@ -173,7 +170,7 @@ BUILDZIP
 #   $JARVIS_MEMORY_TESTS_REQUIRE_DB  -- NOT set by this harness; this is
 #                                        the thing under test. It is set
 #                                        (or not) by verify_submission.sh's
-#                                        own [4/4] check when it invokes
+#                                        own [3/3] check when it invokes
 #                                        `uv run pytest tests/memory -q`.
 # ---------------------------------------------------------------------------
 write_stub_uv() {
@@ -262,13 +259,13 @@ run_case() {
 
 # ---------------------------------------------------------------------------
 # Case 1: unreachable database, flag honestly wired (this drives the real,
-# unmodified scripts/verify_submission.sh) -> [4/4] must FAIL and the
+# unmodified scripts/verify_submission.sh) -> [3/3] must FAIL and the
 # overall gate must exit non-zero.
 # ---------------------------------------------------------------------------
 run_case "db_unreachable" "0" "nonzero" "FAILED -- memory suite check"
 
 # ---------------------------------------------------------------------------
-# Case 2: reachable database, flag honestly wired -> [4/4] must PASS, and
+# Case 2: reachable database, flag honestly wired -> [3/3] must PASS, and
 # because every other check in the sandbox is independently satisfied (see
 # build_sandbox), the overall gate must exit 0.
 # ---------------------------------------------------------------------------

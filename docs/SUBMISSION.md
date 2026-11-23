@@ -13,7 +13,7 @@ do.
 | Item | Status | Detail |
 |---|---|---|
 | `docs/TECHNICAL.md` (architecture, stack rationale, known limits, AI-usage note) | **DONE** | Written against the code as it exists now; see the file for full detail, including an honest limits section. |
-| `scripts/verify_submission.sh` | **DONE** | Scripts `[1/4]` evidence freshness, `[2/4]` `docs/TECHNICAL.md` present, `[3/4]` zip built, `[4/4]` memory suite (T-31). Repo-private and video-present are tracked in the two rows below instead of a script check — see the removal-point comments at the top of the script. |
+| `scripts/verify_submission.sh` | **DONE** | Scripts `[1/3]` evidence freshness, `[2/3]` zip built (the zip must contain `docs/TECHNICAL.md`), `[3/3]` memory suite (T-31). Repo-private and video-present are tracked in the two rows below instead of a script check — see the removal-point comments at the top of the script. |
 | `submission/build_zip.sh` + a verified zip | **DONE (mechanism)** | Builds a fresh zip from an explicit file list, excluding `.env`, `.git`, `backend/.venv`, `frontend/node_modules`, `backend/var`, `.claude/claims`, `.claude/evidence`, `.claude/evidence-v1`, `heartbeat.jsonl`, `.codegraph`, caches, and `frontend/dist`. Rebuilds on every `verify_submission.sh` run, so it always reflects current repo state. Run `unzip -l submission/jarvis-submission.zip` for the current file count and size. |
 | Acceptance 1 — video content checklist | **PLACEHOLDER, BLOCKED** | `docs/SPEC.md` §Open questions item 1: the required contents of the video and the Attachments section were cut off in the provided PRD screenshots. No checklist has been invented to fill the gap. **Needs**: the missing PRD screenshot region from Hank. |
 | Demo video file | **Recorded** | Hosted on Loom, not committed to this repo. |
@@ -28,13 +28,13 @@ do.
    real, human-approved checklist.
 2. **Rebuild the zip right before sending** (`bash submission/build_zip.sh`,
    or just re-run `verify_submission.sh`, which rebuilds it as part of
-   `[3/4]`).
+   `[2/3]`).
 3. **Send `submission/jarvis-submission.zip`** to the reviewing
    team, calling out
    `docs/TECHNICAL.md` (already inside the zip) and the Loom demo link in
    the email body. Then fill in §3 below.
-4. **Re-run `bash scripts/verify_submission.sh`.** `[2/4]`–`[4/4]` already
-   pass; `[1/4]` (evidence freshness) is expected to keep failing until
+4. **Re-run `bash scripts/verify_submission.sh`.** `[2/3]` and `[3/3]` already
+   pass; `[1/3]` (evidence freshness) is expected to keep failing until
    T-13 itself closes (see the evidence-freshness row in §1) — a nonzero
    exit here is not proof something is still broken.
 

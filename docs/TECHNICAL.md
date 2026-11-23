@@ -392,7 +392,7 @@ fixture defaults to *skipping* (loudly, per T-23) the mem0/pgvector
 integration tests when Postgres is unreachable, rather than failing —
 necessary so a plain `cd backend && uv run pytest tests/memory -q` stays
 closable on an offline dev machine or in CI (which SPEC C7 forbids adding
-a Postgres service to). `scripts/verify_submission.sh`'s check `[4/4]` is
+a Postgres service to). `scripts/verify_submission.sh`'s check `[3/3]` is
 the single context that sets `JARVIS_MEMORY_TESTS_REQUIRE_DB=1`, which
 turns that skip into a hard `pytest.fail()` — so a submission can no
 longer go out having silently never exercised the memory integration

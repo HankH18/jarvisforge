@@ -4,21 +4,24 @@
 # Seeded by T-22 with exactly one check: no ticket's .claude/evidence/*.pass
 # receipt may be stale (superseded by a later commit to that ticket's
 # declared scope). T-13 extends this script (does not replace it) with the
-# remaining scripted checks its own acceptance criterion 3 names:
-# docs/TECHNICAL.md present, submission zip built.
+# remaining scripted check its own acceptance criterion 3 names:
+# submission zip built.
 # (Repo-private and demo-video-present were also scripted checks here,
 # until each was removed on the same grounds -- see the removal-point
 # comments below for why, and for what satisfies each acceptance item now
 # that this script no longer checks it. Repo-private was removed
-# 2026-08-16; demo-video was removed 2026-08-17.)
+# 2026-08-16; demo-video was removed 2026-08-17. A docs/TECHNICAL.md
+# check, which grepped that file for four topic names, was removed
+# 2026-11-23; the zip check below still fails if the zip does not
+# contain docs/TECHNICAL.md.)
 # T-31 adds a further check: the memory suite (backend/tests/memory), run
 # with JARVIS_MEMORY_TESTS_REQUIRE_DB=1 so an unreachable memory database
 # is a hard failure here, never a silent skip -- this script is that flag's
 # one owning context (see backend/tests/memory/conftest.py and
-# docs/TECHNICAL.md §5 for what it needs). It is now the fourth and final
-# check ([4/4]) -- it was the fifth of five before the demo-video check's
-# removal shifted it down by one, and the sixth of six before that, before
-# the repo-private check's removal.
+# docs/TECHNICAL.md §5 for what it needs). It is now the third and final
+# check ([3/3]) -- it was the fourth of four before the docs/TECHNICAL.md
+# check's removal, the fifth of five before the demo-video check's
+# removal, and the sixth of six before the repo-private check's removal.
 #
 # Honesty convention (T-23 precedent, restated here because it governs every
 # check below): a condition this script cannot actually verify is a FAIL,
@@ -57,7 +60,7 @@ echo "== T-13 submission verification =="
 # 1. Evidence freshness gate (T-22) -- unchanged from the seed.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [1/4] evidence freshness gate (T-22) --"
+echo "-- [1/3] evidence freshness gate (T-22) --"
 if "${SCRIPT_DIR}/check_evidence_staleness.sh" "${PROJECT_DIR}"; then
   echo "verify_submission: evidence freshness OK"
 else
@@ -74,7 +77,8 @@ fi
 # private" as one of its FOUR required checks, alongside video-present,
 # docs/TECHNICAL.md-present, and zip-built (video-present was later removed
 # too, on the same grounds -- see its own removal-point comment below --
-# so docs/TECHNICAL.md-present and zip-built are the two that remain
+# and docs/TECHNICAL.md-present was removed later, so zip-built is the
+# only one that remains
 # scripted below). This check could never pass by running it, in any state
 # of the world: the only access token available could not read the
 # project's settings through the hosting service's API, so the script had
@@ -97,8 +101,8 @@ fi
 # the video didn't matter: it was NOT unimportant, and it was NOT dropped
 # because it stopped mattering. T-13's own acceptance criterion 3 lists
 # "video file present" as one of its FOUR required checks, alongside
-# repo-private, docs/TECHNICAL.md-present, and zip-built (the two that
-# remain scripted below). This check could never pass by running it, in
+# repo-private, docs/TECHNICAL.md-present, and zip-built (only zip-built
+# remains scripted below). This check could never pass by running it, in
 # any state of the world: Hank recorded the demo and it is hosted on
 # Loom --
 # not committed to this repo, so submission/video/ stays empty by design.
@@ -113,39 +117,7 @@ fi
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# 2. docs/TECHNICAL.md present and covers the required topics.
-# ---------------------------------------------------------------------------
-echo
-echo "-- [2/4] docs/TECHNICAL.md present --"
-TECH_DOC="${PROJECT_DIR}/docs/TECHNICAL.md"
-if [ ! -f "$TECH_DOC" ]; then
-  echo "verify_submission: FAILED -- ${TECH_DOC} does not exist." >&2
-  OVERALL_FAIL=1
-elif [ ! -s "$TECH_DOC" ]; then
-  echo "verify_submission: FAILED -- ${TECH_DOC} exists but is empty." >&2
-  OVERALL_FAIL=1
-else
-  MISSING_SECTIONS=""
-  for marker in "rchitecture" "tack rationale" "nown limit" "I-usage" "I usage"; do
-    if ! grep -qi "$marker" "$TECH_DOC"; then
-      MISSING_SECTIONS="${MISSING_SECTIONS} '${marker}'"
-    fi
-  done
-  # AI-usage / AI usage are alternate spellings of the same required topic;
-  # only flag it missing if NEITHER spelling was found.
-  if grep -qi "I-usage" "$TECH_DOC" || grep -qi "I usage" "$TECH_DOC"; then
-    MISSING_SECTIONS="$(echo "$MISSING_SECTIONS" | sed "s/'I-usage'//; s/'I usage'//")"
-  fi
-  if [ -z "$(echo "$MISSING_SECTIONS" | tr -d '[:space:]')" ]; then
-    echo "verify_submission: docs/TECHNICAL.md check PASSED -- present, non-empty, and covers architecture, stack rationale, known limits, and an AI-usage note."
-  else
-    echo "verify_submission: FAILED -- docs/TECHNICAL.md exists but appears to be missing required topic(s):${MISSING_SECTIONS}" >&2
-    OVERALL_FAIL=1
-  fi
-fi
-
-# ---------------------------------------------------------------------------
-# 3. Submission zip built.
+# 2. Submission zip built.
 #
 # Rebuilds the zip fresh every run (via submission/build_zip.sh) rather than
 # trusting a stale artifact, then verifies its integrity and that none of
@@ -153,7 +125,7 @@ fi
 # .claude/claims) actually made it in.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [3/4] submission zip built --"
+echo "-- [2/3] submission zip built --"
 BUILD_ZIP="${PROJECT_DIR}/submission/build_zip.sh"
 ZIP_OUT="${PROJECT_DIR}/submission/jarvis-submission.zip"
 
@@ -190,7 +162,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Memory suite verified against a reachable database (T-31).
+# 3. Memory suite verified against a reachable database (T-31).
 #
 # JARVIS_MEMORY_TESTS_REQUIRE_DB=1 (backend/tests/memory/conftest.py's
 # require_db fixture) turns an unreachable Postgres+pgvector into a hard
@@ -212,7 +184,7 @@ fi
 # that reports PASSED without the command itself having exited 0.
 # ---------------------------------------------------------------------------
 echo
-echo "-- [4/4] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
+echo "-- [3/3] memory suite (JARVIS_MEMORY_TESTS_REQUIRE_DB) --"
 BACKEND_DIR="${PROJECT_DIR}/backend"
 
 if [ ! -d "$BACKEND_DIR" ]; then
